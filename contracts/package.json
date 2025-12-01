@@ -1,0 +1,15 @@
+{
+  "name": "flipstarter-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "vitest run",
+    "dev": "vitest watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.2.0"
+  }
+}
