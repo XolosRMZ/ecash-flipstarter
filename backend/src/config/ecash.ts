@@ -6,5 +6,6 @@ export const ecashConfig = {
 
 export const ECASH_BACKEND = (process.env.E_CASH_BACKEND || 'rpc').toLowerCase();
 export const USE_CHRONIK = ECASH_BACKEND === 'chronik';
+export const USE_MOCK = ECASH_BACKEND === 'mock';
 export const CHRONIK_BASE_URL =
-  process.env.CHRONIK_BASE_URL || 'https://chronik.e.cash/xec';
+  process.env.CHRONIK_BASE_URL || 'https://chronik.e.cash';
