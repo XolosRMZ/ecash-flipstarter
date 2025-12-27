@@ -15,8 +15,12 @@ export const ECASH_BACKEND = (
 export const USE_CHRONIK = ECASH_BACKEND === 'chronik';
 export const USE_MOCK = ECASH_BACKEND === 'mock';
 
+export function normalizeChronikBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
 function sanitizeChronikBaseUrl(value: string, enforce: boolean): string {
-  const trimmed = value.trim().replace(/\/+$/, '');
+  const trimmed = normalizeChronikBaseUrl(value);
   if (!trimmed) {
     if (enforce) throw new Error('CHRONIK_BASE_URL is required');
     return trimmed;
@@ -28,12 +32,6 @@ function sanitizeChronikBaseUrl(value: string, enforce: boolean): string {
   try {
     const url = new URL(trimmed);
     const normalizedPath = url.pathname.replace(/\/+$/, '');
-    const hasNetworkSuffix = normalizedPath === '/xec' || normalizedPath === '/v2';
-    if (!hasNetworkSuffix) {
-      if (enforce) {
-        throw new Error('CHRONIK_BASE_URL must include the /xec network suffix');
-      }
-    }
     if (url.search || url.hash) {
       if (enforce) {
         throw new Error('CHRONIK_BASE_URL must not include query or hash');
@@ -51,6 +49,8 @@ function sanitizeChronikBaseUrl(value: string, enforce: boolean): string {
 }
 
 const rawChronikBaseUrl =
-  process.env.CHRONIK_BASE_URL || 'https://chronik.e.cash/xec';
+  process.env.CHRONIK_BASE_URL ||
+  process.env.CHRONIK_BASE_URL ||
+  'https://chronik.e.cash';
 
 export const CHRONIK_BASE_URL = sanitizeChronikBaseUrl(rawChronikBaseUrl, USE_CHRONIK);
