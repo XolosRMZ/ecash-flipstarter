@@ -5,7 +5,7 @@ import { validateHex } from '../utils/validation';
 
 const router = Router();
 
-async function handleBroadcast(req: any, res: any) {
+export async function handleBroadcast(req: any, res: any) {
   try {
     const rawTxHex = req.body.rawTxHex as string | undefined;
     if (typeof rawTxHex !== 'string') {

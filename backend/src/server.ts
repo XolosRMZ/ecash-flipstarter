@@ -1,11 +1,8 @@
-import app from "./app";
+import app from './app';
 
-const PORT = process.env.API_PORT
-  ? Number(process.env.API_PORT)
-  : process.env.PORT
-    ? Number(process.env.PORT)
-    : 3000;
+const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
+const host = process.env.HOST ?? '127.0.0.1';
 
-app.listen(PORT, () => {
-  console.log(`Flipstarter backend listening on port ${PORT}`);
+app.listen(port, host, () => {
+  console.log(`Flipstarter backend listening on http://${host}:${port}`);
 });

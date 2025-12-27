@@ -7,40 +7,52 @@ import broadcastRouter from './routes/broadcast.routes';
 import { CHRONIK_BASE_URL, ECASH_BACKEND, USE_CHRONIK } from './config/ecash';
 import { getTipHeight } from './blockchain/ecashClient';
 
-const app = express();
+export function createApp() {
+  const app = express();
 
-const defaultOrigin = 'http://127.0.0.1:5173';
-const allowedOrigin = (process.env.ALLOWED_ORIGIN || defaultOrigin).trim();
-// Allow only the configured origin; no wildcard in production.
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && origin !== allowedOrigin) {
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(403);
+  const defaultOrigin = 'http://127.0.0.1:5173';
+  const allowedOrigin = (process.env.ALLOWED_ORIGIN || defaultOrigin).trim();
+  // Allow only the configured origin; no wildcard in production.
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && origin !== allowedOrigin) {
+      if (req.method === 'OPTIONS') {
+        return res.sendStatus(403);
+      }
+      return res.status(403).json({ error: 'cors-not-allowed' });
     }
-    return res.status(403).json({ error: 'cors-not-allowed' });
-  }
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Vary', 'Origin');
-  }
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Vary', 'Origin');
+    }
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
+  app.use(express.json());
 
-app.use(express.json());
+  // Healthchecks
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
 
-// Healthchecks
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
+  app.get('/api/health', healthHandler);
 
-app.get('/api/health', async (_req, res) => {
+  // Rutas de la API
+  app.use('/api', campaignsRouter);
+  app.use('/api', pledgeRouter);
+  app.use('/api', finalizeRouter);
+  app.use('/api', refundRouter);
+  app.use('/api', broadcastRouter);
+
+  return app;
+}
+
+export async function healthHandler(_req: express.Request, res: express.Response) {
   const timestamp = new Date().toISOString();
   try {
     if (USE_CHRONIK) {
@@ -83,13 +95,7 @@ app.get('/api/health', async (_req, res) => {
       timestamp,
     });
   }
-});
+}
 
-// Rutas de la API
-app.use('/api', campaignsRouter);
-app.use('/api', pledgeRouter);
-app.use('/api', finalizeRouter);
-app.use('/api', refundRouter);
-app.use('/api', broadcastRouter);
-
+const app = createApp();
 export default app;
