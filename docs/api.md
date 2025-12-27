@@ -51,6 +51,6 @@ curl -X POST http://localhost:3001/api/campaign/campaign-123/pledge \
 ```
 
 ### Chronik backend
-For development you can set `E_CASH_BACKEND=chronik` and optionally `CHRONIK_BASE_URL` (default `https://chronik.e.cash/xec`). In this mode:
+For development you can set `E_CASH_BACKEND=chronik` and optionally `CHRONIK_BASE_URL` (default `https://chronik.e.cash`, may include `/xec` if your proxy requires it). In this mode:
 - UTXOs come from `GET {CHRONIK_BASE_URL}/script/{type}/{hash}/utxos` (or `/address/{addr}/utxos`).
 - Transactions broadcast via `POST {CHRONIK_BASE_URL}/broadcast-tx` with raw tx hex body.

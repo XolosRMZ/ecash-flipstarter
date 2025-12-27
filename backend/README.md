@@ -4,12 +4,12 @@ Express + TypeScript backend scaffold for Flipstarter 2.0. Provides campaign, pl
 
 ## Configuration
 
-Chronik mode uses the base URL including the network suffix (e.g. `/xec`), for example:
+Chronik mode uses the base URL with or without the `/xec` suffix, depending on your proxy.
 
 ```
 E_CASH_BACKEND=chronik
-CHRONIK_BASE_URL=https://chronik.xolosarmy.xyz/xec
-API_PORT=3001
+CHRONIK_BASE_URL=https://chronik.xolosarmy.xyz
+PORT=3001
 HOST=127.0.0.1
 ```
 
@@ -17,7 +17,7 @@ Quick checks:
 
 ```
 curl http://127.0.0.1:3001/api/health
-curl https://chronik.xolosarmy.xyz/xec/chronik-info
+curl https://chronik.xolosarmy.xyz/chronik-info
 ```
 
 ## Testing

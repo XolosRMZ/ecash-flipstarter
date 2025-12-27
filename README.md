@@ -34,11 +34,11 @@ Monorepo for a covenant-driven crowdfunding system on eCash. Contracts, backend 
 
 **ECASH_RPC_URL**, **ECASH_RPC_USER**, **ECASH_RPC_PASS** = Credenciales RPC del nodo eCash (usadas en modo `rpc`, y para funciones auxiliares en modo `chronik`).
 
-**CHRONIK_BASE_URL** = URL base del API Chronik cuando `E_CASH_BACKEND=chronik` (por defecto `https://chronik.e.cash/xec`). Debe incluir el sufijo de red `/xec`.
+**CHRONIK_BASE_URL** = URL base del API Chronik cuando `E_CASH_BACKEND=chronik` (por defecto `https://chronik.e.cash`). Puede incluir `/xec` si tu reverse proxy lo requiere.
 
 **ALLOWED_ORIGIN** = Origen permitido para CORS en el backend. En producción, configura tu dominio (ej. `https://cartera.xolosarmy.xyz`); en desarrollo se usa `http://127.0.0.1:5173` si no se define.
 
-**API_PORT** = Puerto del backend (por defecto 3001).
+**PORT** = Puerto del backend (por defecto 3001).
 
 ## Local test plan
 Backend:
@@ -114,4 +114,4 @@ Optional broadcast:
 SIGNED_TX_HEX="..." ./scripts/smoke-test.sh
 ```
 
-If you see `EADDRINUSE`, stop the existing process or change `API_PORT` (backend) or the Vite port (frontend) before retrying.
+If you see `EADDRINUSE`, stop the existing process or change `PORT` (backend) or the Vite port (frontend) before retrying.
