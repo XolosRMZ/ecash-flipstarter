@@ -9,6 +9,7 @@ beforeEach(() => {
 
 vi.mock('../blockchain/ecashClient', () => ({
   getTipHeight: vi.fn().mockResolvedValue(123),
+  getEffectiveChronikBaseUrl: vi.fn().mockReturnValue('https://chronik.example/xec'),
 }));
 
 describe('/api/health', () => {
