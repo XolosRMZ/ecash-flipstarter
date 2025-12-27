@@ -12,5 +12,5 @@
 - All transactions returned by the API are UNSIGNED. Client wallets (e.g., Tonalli/RMZWallet) must sign inputs and broadcast; backend only assists with construction.
 
 ## Chronik backend option
-- Set `E_CASH_BACKEND=chronik` and `CHRONIK_BASE_URL=https://chronik.e.cash/xec` (default) to fetch UTXOs via `/address/{addr}/utxos` and broadcast via `/tx` on Chronik.
+- Set `E_CASH_BACKEND=chronik` and `CHRONIK_BASE_URL=https://chronik.e.cash/xec` (default) to fetch UTXOs via `/script/{type}/{hash}/utxos` and broadcast via `/broadcast-tx` on Chronik.
 - Leave unset or `rpc` to use node JSON-RPC as before; covenant logic and txBuilder are unchanged, only the UTXO/broadcast backend switches.
