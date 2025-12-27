@@ -22,3 +22,17 @@ npm run dev
 - Open the frontend and navigate to a campaign.
 - Use the pledge form to request an unsigned pledge transaction.
 - Copy `unsignedTxHex` into a wallet for signing and broadcast via the backend.
+
+## Tonalli Connector
+Set these env vars to enable the in-app Tonalli signing flow:
+```
+export VITE_TONALLI_BRIDGE_URL=https://cartera.xolosarmy.xyz
+export VITE_TONALLI_BRIDGE_ORIGIN=https://cartera.xolosarmy.xyz
+export VITE_TONALLI_BRIDGE_PATH=/#/external-sign
+export VITE_TONALLI_TIMEOUT_MS=120000
+```
+
+Test flow:
+1) Build a pledge to get the unsigned hex.
+2) Click "Sign & Broadcast with Tonalli".
+3) Approve in Tonalli and confirm the returned txid in the UI.

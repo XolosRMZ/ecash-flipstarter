@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
 import { broadcastTx, createPledgeTx } from '../api/client';
 import type { BuiltTxResponse } from '../api/types';
-import { getTonalliWallet } from '../wallet/tonalliConnector';
+import { signAndBroadcastWithTonalli } from '../wallet/tonalliConnector';
 
 interface Props {
   campaignId: string;
   onBuiltTx?: (tx: BuiltTxResponse) => void;
+  onBroadcastSuccess?: () => void;
 }
 
-export const PledgeForm: React.FC<Props> = ({ campaignId, onBuiltTx }) => {
+export const PledgeForm: React.FC<Props> = ({
+  campaignId,
+  onBuiltTx,
+  onBroadcastSuccess,
+}) => {
   const [contributorAddress, setContributorAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [unsignedHex, setUnsignedHex] = useState('');
@@ -16,7 +21,9 @@ export const PledgeForm: React.FC<Props> = ({ campaignId, onBuiltTx }) => {
   const [broadcastResult, setBroadcastResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
-  const wallet = getTonalliWallet();
+  const [tonalliLoading, setTonalliLoading] = useState(false);
+  const [tonalliResult, setTonalliResult] = useState('');
+  const [tonalliPopupUrl, setTonalliPopupUrl] = useState('');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +65,32 @@ export const PledgeForm: React.FC<Props> = ({ campaignId, onBuiltTx }) => {
       setBroadcastResult(`Error: ${(err as Error).message}`);
     } finally {
       setBroadcasting(false);
+    }
+  };
+
+  const handleTonalli = async () => {
+    setTonalliLoading(true);
+    setTonalliResult('');
+    setTonalliPopupUrl('');
+    try {
+      const result = await signAndBroadcastWithTonalli({
+        kind: 'pledge',
+        campaignId,
+        unsignedTxHex: unsignedHex,
+      });
+      if (result.ok && result.txid) {
+        setTonalliResult(`Tonalli broadcasted. TXID: ${result.txid}`);
+        onBroadcastSuccess?.();
+      } else {
+        setTonalliResult(result.error || 'Tonalli request failed');
+        if (result.popupUrl) {
+          setTonalliPopupUrl(result.popupUrl);
+        }
+      }
+    } catch (err) {
+      setTonalliResult(`Error: ${(err as Error).message}`);
+    } finally {
+      setTonalliLoading(false);
     }
   };
 
@@ -118,28 +151,20 @@ export const PledgeForm: React.FC<Props> = ({ campaignId, onBuiltTx }) => {
             </button>
           </div>
           {broadcastResult && <p>{broadcastResult}</p>}
-          <button
-            onClick={async () => {
-              if (!wallet) {
-                alert('Tonalli Wallet no está conectada');
-                return;
-              }
-              try {
-                const txid = await wallet.signAndBroadcast(unsignedHex);
-                alert(`¡Pledge transmitido! TXID: ${txid}`);
-              } catch (err) {
-                alert(`Error al firmar/transmitir: ${(err as Error).message}`);
-              }
-            }}
-            disabled={!wallet}
-          >
-            Sign &amp; Broadcast with Tonalli
+          <button type="button" onClick={handleTonalli} disabled={tonalliLoading}>
+            {tonalliLoading ? 'Opening Tonalli...' : 'Sign & Broadcast with Tonalli'}
           </button>
-          {!wallet && (
+          {tonalliPopupUrl && (
             <p>
-              <em>Por ahora, usa el flujo de pegar hex firmado y hacer broadcast.</em>
+              <a href={tonalliPopupUrl} target="_blank" rel="noreferrer">
+                Open Tonalli in a new tab
+              </a>
             </p>
           )}
+          {tonalliResult && <p>{tonalliResult}</p>}
+          <p>
+            <em>Si Tonalli no abre, usa el flujo de pegar hex firmado y hacer broadcast.</em>
+          </p>
         </div>
       )}
     </div>
