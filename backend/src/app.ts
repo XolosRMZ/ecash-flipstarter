@@ -3,22 +3,28 @@ import campaignsRouter from './routes/campaigns.routes';
 import pledgeRouter from './routes/pledge.routes';
 import finalizeRouter from './routes/finalize.routes';
 import refundRouter from './routes/refund.routes';
+import broadcastRouter from './routes/broadcast.routes';
 import { CHRONIK_BASE_URL, ECASH_BACKEND, USE_CHRONIK } from './config/ecash';
-import { getChronikBlockchainInfo, rpcCall } from './blockchain/ecashClient';
+import { getTipHeight } from './blockchain/ecashClient';
 
 const app = express();
 
-const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
-// CORS muy abierto para desarrollo
+const defaultOrigin = 'http://127.0.0.1:5173';
+const allowedOrigin = (process.env.ALLOWED_ORIGIN || defaultOrigin).trim();
+// Allow only the configured origin; no wildcard in production.
 app.use((req, res, next) => {
-  res.header(
-    'Access-Control-Allow-Origin',
-    allowedOrigin === '*' ? '*' : allowedOrigin
-  );
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept'
-  );
+  const origin = req.headers.origin;
+  if (origin && origin !== allowedOrigin) {
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(403);
+    }
+    return res.status(403).json({ error: 'cors-not-allowed' });
+  }
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Vary', 'Origin');
+  }
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -35,39 +41,47 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/api/health', async (_req, res) => {
+  const timestamp = new Date().toISOString();
   try {
     if (USE_CHRONIK) {
       try {
-        const chainInfo = await getChronikBlockchainInfo();
+        const tipHeight = await getTipHeight();
         res.json({
           status: 'ok',
+          network: 'XEC',
           backendMode: ECASH_BACKEND,
           chronikBaseUrl: CHRONIK_BASE_URL,
-          tipHeight: chainInfo.tipHeight,
+          tipHeight,
+          timestamp,
         });
         return;
       } catch (err) {
-        res.status(500).json({
+        res.json({
           status: 'error',
-          backendMode: ECASH_BACKEND,
+          network: 'XEC',
+          backendMode: 'chronik',
           chronikBaseUrl: CHRONIK_BASE_URL,
           error: (err as Error).message,
+          timestamp,
         });
         return;
       }
     }
-    const info = await rpcCall<any>('getblockchaininfo');
+    const tipHeight = await getTipHeight();
     res.json({
       status: 'ok',
+      network: 'XEC',
       backendMode: ECASH_BACKEND,
-      network: info.chain || 'XEC',
-      blocks: info.blocks,
-      headers: info.headers,
-      bestHash: info.bestblockhash?.slice(0, 8) ?? null,
-      timestamp: Date.now(),
+      tipHeight,
+      timestamp,
     });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: (err as Error).message });
+    res.json({
+      status: 'error',
+      backendMode: ECASH_BACKEND,
+      error: (err as Error).message,
+      timestamp,
+    });
   }
 });
 
@@ -76,5 +90,6 @@ app.use('/api', campaignsRouter);
 app.use('/api', pledgeRouter);
 app.use('/api', finalizeRouter);
 app.use('/api', refundRouter);
+app.use('/api', broadcastRouter);
 
 export default app;

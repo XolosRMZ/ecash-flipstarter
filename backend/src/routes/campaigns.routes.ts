@@ -1,11 +1,16 @@
 import { Router } from 'express';
-import { CampaignService } from '../services/CampaignService.js';
+import { CampaignService } from '../services/CampaignService';
+import { validateAddress } from '../utils/validation';
+
 
 const router = Router();
 const service = new CampaignService();
 
 router.post('/campaign', async (req, res) => {
   try {
+    if (typeof req.body.beneficiaryAddress === 'string' && req.body.beneficiaryAddress.trim()) {
+      req.body.beneficiaryAddress = validateAddress(req.body.beneficiaryAddress, 'beneficiaryAddress');
+    }
     const campaign = await service.createCampaign(req.body);
     res.json(campaign);
   } catch (err) {

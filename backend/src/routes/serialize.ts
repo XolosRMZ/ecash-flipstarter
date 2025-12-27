@@ -1,4 +1,4 @@
-import type { BuiltTx } from '../blockchain/txBuilder.js';
+import type { BuiltTx } from '../blockchain/txBuilder';
 
 export function serializeBuiltTx<T extends BuiltTx>(built: T) {
   return {
@@ -10,6 +10,7 @@ export function serializeBuiltTx<T extends BuiltTx>(built: T) {
       locktime: built.unsignedTx.locktime,
     },
     rawHex: built.rawHex,
+    unsignedTxHex: built.rawHex,
     // carry any extra fields (e.g., nextCovenantValue) converting BigInt to string
     ...(typeof (built as any).nextCovenantValue !== 'undefined'
       ? { nextCovenantValue: (built as any).nextCovenantValue.toString() }
