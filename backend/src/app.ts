@@ -4,8 +4,8 @@ import pledgeRouter from './routes/pledge.routes';
 import finalizeRouter from './routes/finalize.routes';
 import refundRouter from './routes/refund.routes';
 import broadcastRouter from './routes/broadcast.routes';
-import { CHRONIK_BASE_URL, ECASH_BACKEND, USE_CHRONIK } from './config/ecash';
-import { getTipHeight } from './blockchain/ecashClient';
+import { ECASH_BACKEND, USE_CHRONIK } from './config/ecash';
+import { getEffectiveChronikBaseUrl, getTipHeight } from './blockchain/ecashClient';
 
 export function createApp() {
   const app = express();
@@ -62,7 +62,7 @@ export async function healthHandler(_req: express.Request, res: express.Response
           status: 'ok',
           network: 'XEC',
           backendMode: ECASH_BACKEND,
-          chronikBaseUrl: CHRONIK_BASE_URL,
+          chronikBaseUrl: getEffectiveChronikBaseUrl(),
           tipHeight,
           timestamp,
         });
@@ -72,7 +72,7 @@ export async function healthHandler(_req: express.Request, res: express.Response
           status: 'error',
           network: 'XEC',
           backendMode: 'chronik',
-          chronikBaseUrl: CHRONIK_BASE_URL,
+          chronikBaseUrl: getEffectiveChronikBaseUrl(),
           error: (err as Error).message,
           timestamp,
         });
