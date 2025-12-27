@@ -21,4 +21,4 @@ npm run dev
 - Create a campaign via curl or future UI.
 - Open the frontend and navigate to a campaign.
 - Use the pledge form to request an unsigned pledge transaction.
-- Copy `rawHex` into a wallet for signing (Tonalli integration TODO).
+- Copy `unsignedTxHex` into a wallet for signing and broadcast via the backend.

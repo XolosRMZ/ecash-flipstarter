@@ -34,7 +34,8 @@ export interface UnsignedTx {
 
 export interface BuiltTxResponse {
   unsignedTx: UnsignedTx;
-  rawHex: string;
+  rawHex?: string;
+  unsignedTxHex?: string;
   nextCovenantValue?: string;
   fee?: string;
 }

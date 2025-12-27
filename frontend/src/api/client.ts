@@ -4,7 +4,10 @@ import type {
   CampaignSummary,
 } from './types';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api').replace(
+  /\/+$/,
+  ''
+);
 
 async function jsonFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -34,5 +37,14 @@ export async function createPledgeTx(
   return jsonFetch<BuiltTxResponse>(`/campaign/${campaignId}/pledge`, {
     method: 'POST',
     body: JSON.stringify({ contributorAddress, amount: amount.toString() }),
+  });
+}
+
+export async function broadcastTx(
+  rawTxHex: string,
+): Promise<{ txid: string; backendMode?: string; message?: string }> {
+  return jsonFetch<{ txid: string; backendMode?: string; message?: string }>(`/tx/broadcast`, {
+    method: 'POST',
+    body: JSON.stringify({ rawTxHex }),
   });
 }

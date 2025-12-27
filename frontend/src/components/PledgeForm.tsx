@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { createPledgeTx } from '../api/client';
+import { broadcastTx, createPledgeTx } from '../api/client';
 import type { BuiltTxResponse } from '../api/types';
 import { getTonalliWallet } from '../wallet/tonalliConnector';
 
@@ -11,21 +11,53 @@ interface Props {
 export const PledgeForm: React.FC<Props> = ({ campaignId, onBuiltTx }) => {
   const [contributorAddress, setContributorAddress] = useState('');
   const [amount, setAmount] = useState('');
-  const [rawHex, setRawHex] = useState('');
+  const [unsignedHex, setUnsignedHex] = useState('');
+  const [signedHex, setSignedHex] = useState('');
+  const [broadcastResult, setBroadcastResult] = useState('');
   const [loading, setLoading] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
   const wallet = getTonalliWallet();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setBroadcastResult('');
     try {
       const built = await createPledgeTx(campaignId, contributorAddress, BigInt(amount));
-      setRawHex(built.rawHex);
+      const hex = built.unsignedTxHex || built.rawHex || '';
+      setUnsignedHex(hex);
+      setSignedHex('');
       onBuiltTx?.(built);
     } catch (err) {
       alert((err as Error).message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const copyUnsigned = async () => {
+    try {
+      await navigator.clipboard.writeText(unsignedHex);
+      setBroadcastResult('Unsigned tx copied.');
+    } catch (err) {
+      alert('No se pudo copiar el hex.');
+    }
+  };
+
+  const handleBroadcast = async () => {
+    if (!signedHex.trim()) {
+      alert('Signed tx hex requerido.');
+      return;
+    }
+    setBroadcasting(true);
+    setBroadcastResult('');
+    try {
+      const result = await broadcastTx(signedHex);
+      setBroadcastResult(`Broadcasted. TXID: ${result.txid}`);
+    } catch (err) {
+      setBroadcastResult(`Error: ${(err as Error).message}`);
+    } finally {
+      setBroadcasting(false);
     }
   };
 
@@ -55,14 +87,59 @@ export const PledgeForm: React.FC<Props> = ({ campaignId, onBuiltTx }) => {
           {loading ? 'Building...' : 'Build Pledge Tx'}
         </button>
       </form>
-      {rawHex && (
+      {unsignedHex && (
         <div style={{ marginTop: 12 }}>
-          <p>Unsigned raw tx (hex):</p>
-          <code style={{ wordBreak: 'break-all', display: 'block' }}>{rawHex}</code>
-          <button disabled title="Coming soon: Tonalli integration">
-            Sign & Broadcast with Tonalli
+          <p>Unsigned tx hex:</p>
+          <textarea
+            readOnly
+            value={unsignedHex}
+            rows={6}
+            style={{ width: '100%', wordBreak: 'break-all' }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button type="button" onClick={copyUnsigned}>
+              Copy unsigned tx
+            </button>
+          </div>
+          <p style={{ marginTop: 8 }}>
+            Firma este hex en Tonalli o herramienta externa, luego pega el hex firmado abajo para
+            hacer broadcast.
+          </p>
+          <label>Signed Tx Hex</label>
+          <textarea
+            value={signedHex}
+            onChange={(e) => setSignedHex(e.target.value)}
+            rows={6}
+            style={{ width: '100%', wordBreak: 'break-all' }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button type="button" onClick={handleBroadcast} disabled={broadcasting}>
+              {broadcasting ? 'Broadcasting...' : 'Broadcast signed tx'}
+            </button>
+          </div>
+          {broadcastResult && <p>{broadcastResult}</p>}
+          <button
+            onClick={async () => {
+              if (!wallet) {
+                alert('Tonalli Wallet no está conectada');
+                return;
+              }
+              try {
+                const txid = await wallet.signAndBroadcast(unsignedHex);
+                alert(`¡Pledge transmitido! TXID: ${txid}`);
+              } catch (err) {
+                alert(`Error al firmar/transmitir: ${(err as Error).message}`);
+              }
+            }}
+            disabled={!wallet}
+          >
+            Sign &amp; Broadcast with Tonalli
           </button>
-          {!wallet && <p><em>Tonalli wallet connector not implemented yet.</em></p>}
+          {!wallet && (
+            <p>
+              <em>Por ahora, usa el flujo de pegar hex firmado y hacer broadcast.</em>
+            </p>
+          )}
         </div>
       )}
     </div>
