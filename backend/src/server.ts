@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import app from './app';
 import { getEffectiveChronikBaseUrl } from './blockchain/ecashClient';
 import { ECASH_BACKEND, USE_CHRONIK } from './config/ecash';
