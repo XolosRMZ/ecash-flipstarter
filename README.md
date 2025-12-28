@@ -15,14 +15,25 @@ Monorepo for a covenant-driven crowdfunding system on eCash. Contracts, backend 
    cd frontend
    npm install
    export VITE_API_BASE_URL=http://localhost:3001/api
+   export VITE_TONALLI_BASE_URL=https://cartera.xolosarmy.xyz
    npm run dev
    ```
 
+## Backend (Chronik mode)
+```
+cd backend
+export E_CASH_BACKEND=chronik
+export CHRONIK_BASE_URL=https://chronik.e.cash
+npm run dev
+```
+
 ## Flow
+- Create campaign -> pledge -> open Tonalli -> return with txid.
 - Create a campaign via `POST /api/campaign`.
 - Fetch campaign details via `GET /api/campaign/:id`.
 - Build pledge/finalize/refund unsigned txs via respective POST routes.
-- Sign with a wallet (Tonalli/RMZWallet planned); broadcast via `POST /api/tx/broadcast`.
+- Sign with Tonalli (external-sign), then return to `/tonalli-callback` with the txid.
+- Broadcast via `POST /api/tx/broadcast` for manual signed hex.
 
 ## Docs
 - Whitepaper placeholder: `docs/whitepaper/crowdfunding-covenant-xec-es.md`
@@ -40,6 +51,10 @@ Monorepo for a covenant-driven crowdfunding system on eCash. Contracts, backend 
 
 **PORT** = Puerto del backend (por defecto 3001).
 
+Frontend:
+**VITE_API_BASE_URL** = API base URL para el backend.
+**VITE_TONALLI_BASE_URL** = URL base de Tonalli para el deeplink `/#/external-sign`.
+
 ## Local test plan
 Backend:
 ```
@@ -54,6 +69,7 @@ Frontend:
 cd frontend
 npm install
 export VITE_API_BASE_URL=http://localhost:3001/api
+export VITE_TONALLI_BASE_URL=https://cartera.xolosarmy.xyz
 npm run dev
 ```
 
@@ -78,6 +94,11 @@ curl -X POST http://localhost:3001/api/campaign \
 Open the campaign in the UI:
 ```
 http://localhost:5173/campaign/<id>
+```
+
+Tonalli flow:
+```
+Open pledge -> Open Tonalli to Sign & Broadcast -> return to /#/tonalli-callback?campaignId=<id>&txid=<txid>
 ```
 
 Build pledge tx (unsigned):
