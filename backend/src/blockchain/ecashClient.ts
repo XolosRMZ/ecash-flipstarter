@@ -6,7 +6,8 @@ import {
 } from '../config/ecash';
 import { ChronikClient, type ScriptType } from 'chronik-client';
 import type { BroadcastResult, Utxo } from './types';
-import { Address } from '@ecash/lib';
+import cashaddr from 'ecashaddrjs';
+import { validateAddress } from '../utils/validation';
 
 const rpcUrl = ecashConfig.rpcUrl;
 const rpcUser = ecashConfig.rpcUsername;
@@ -183,24 +184,26 @@ export async function addressToScriptPubKey(address: string): Promise<string> {
   if (USE_MOCK) {
     return '6a';
   }
-  if (USE_CHRONIK) {
-    try {
-      const parsed = Address.parse(address.trim());
-      return parsed.toScriptHex();
-    } catch (err) {
-      console.error(`Error derivando scriptPubKey de ${address}:`, err);
-      throw new Error('invalid-address');
-    }
-  }
   try {
-    const info = await rpcCall<any>('validateaddress', [address]);
-    if (info && info.scriptPubKey) {
-      return info.scriptPubKey as string;
+    const normalized = validateAddress(address, 'contributorAddress');
+    const decoded = cashaddr.decode(normalized, true);
+    const hashHex =
+      typeof decoded.hash === 'string'
+        ? decoded.hash
+        : Buffer.from(decoded.hash).toString('hex');
+    const type = decoded.type.toLowerCase();
+    if (type === 'p2pkh') {
+      return `76a914${hashHex}88ac`;
     }
+    if (type === 'p2sh') {
+      return `a914${hashHex}87`;
+    }
+    console.error(`Tipo de address no soportado para ${address}: ${decoded.type}`);
   } catch (err) {
     console.error(`Error derivando scriptPubKey de ${address}:`, err);
+    throw new Error('invalid-address');
   }
-  throw new Error('could-not-derive-scriptPubKey');
+  throw new Error('invalid-address');
 }
 
 async function getUtxosForAddressViaRpc(address: string): Promise<Utxo[]> {
