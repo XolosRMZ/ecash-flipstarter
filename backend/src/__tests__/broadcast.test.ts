@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 beforeEach(() => {
   vi.resetModules();
   process.env.E_CASH_BACKEND = 'chronik';
-  process.env.CHRONIK_BASE_URL = 'https://chronik.example/xec';
+  process.env.CHRONIK_BASE_URL = 'https://chronik.example';
   process.env.ALLOWED_ORIGIN = '*';
 });
 

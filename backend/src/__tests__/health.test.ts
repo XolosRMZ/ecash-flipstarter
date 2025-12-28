@@ -3,13 +3,14 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 beforeEach(() => {
   vi.resetModules();
   process.env.E_CASH_BACKEND = 'chronik';
-  process.env.CHRONIK_BASE_URL = 'https://chronik.example/xec';
+  process.env.CHRONIK_BASE_URL = 'https://chronik.example';
   process.env.ALLOWED_ORIGIN = '*';
 });
 
-vi.mock('../blockchain/ecashClient', () => ({
-  getTipHeight: vi.fn().mockResolvedValue(123),
-  getEffectiveChronikBaseUrl: vi.fn().mockReturnValue('https://chronik.example/xec'),
+vi.mock('chronik-client', () => ({
+  ChronikClient: vi.fn().mockImplementation(() => ({
+    blockchainInfo: vi.fn().mockResolvedValue({ tipHeight: 123 }),
+  })),
 }));
 
 describe('/api/health', () => {
@@ -21,7 +22,7 @@ describe('/api/health', () => {
     expect(res.body).toMatchObject({
       status: 'ok',
       backendMode: 'chronik',
-      chronikBaseUrl: 'https://chronik.example/xec',
+      chronikBaseUrl: 'https://chronik.example',
       tipHeight: 123,
     });
     expect(typeof res.body.timestamp).toBe('string');
