@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { broadcastTx, createPledgeTx } from '../api/client';
 import type { BuiltTxResponse } from '../api/types';
-import { signAndBroadcastWithTonalli } from '../wallet/tonalliConnector';
+import { buildTonalliExternalSignUrl } from '../wallet/tonalliDeeplink';
 
 interface Props {
   campaignId: string;
@@ -21,9 +21,8 @@ export const PledgeForm: React.FC<Props> = ({
   const [broadcastResult, setBroadcastResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
-  const [tonalliLoading, setTonalliLoading] = useState(false);
-  const [tonalliResult, setTonalliResult] = useState('');
-  const [tonalliPopupUrl, setTonalliPopupUrl] = useState('');
+  const [tonalliMessage, setTonalliMessage] = useState('');
+  const [tonalliUrl, setTonalliUrl] = useState('');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +60,7 @@ export const PledgeForm: React.FC<Props> = ({
     try {
       const result = await broadcastTx(signedHex);
       setBroadcastResult(`Broadcasted. TXID: ${result.txid}`);
+      onBroadcastSuccess?.();
     } catch (err) {
       setBroadcastResult(`Error: ${(err as Error).message}`);
     } finally {
@@ -68,29 +68,28 @@ export const PledgeForm: React.FC<Props> = ({
     }
   };
 
-  const handleTonalli = async () => {
-    setTonalliLoading(true);
-    setTonalliResult('');
-    setTonalliPopupUrl('');
-    try {
-      const result = await signAndBroadcastWithTonalli({
-        kind: 'pledge',
-        campaignId,
-        unsignedTxHex: unsignedHex,
-      });
-      if (result.ok && result.txid) {
-        setTonalliResult(`Tonalli broadcasted. TXID: ${result.txid}`);
-        onBroadcastSuccess?.();
-      } else {
-        setTonalliResult(result.error || 'Tonalli request failed');
-        if (result.popupUrl) {
-          setTonalliPopupUrl(result.popupUrl);
-        }
-      }
-    } catch (err) {
-      setTonalliResult(`Error: ${(err as Error).message}`);
-    } finally {
-      setTonalliLoading(false);
+  const handleTonalli = () => {
+    if (!unsignedHex) {
+      setTonalliMessage('Build the pledge transaction first.');
+      return;
+    }
+
+    const returnUrl = `${window.location.origin}/#/tonalli-callback?campaignId=${encodeURIComponent(
+      campaignId,
+    )}`;
+    const url = buildTonalliExternalSignUrl({
+      unsignedTxHex: unsignedHex,
+      returnUrl,
+      app: 'Flipstarter',
+    });
+    setTonalliUrl(url);
+    setTonalliMessage('');
+
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      setTonalliMessage('Pop-up blocked. Use the link below to open Tonalli.');
+    } else {
+      setTonalliMessage('Tonalli opened in a new tab. Complete the signing flow there.');
     }
   };
 
@@ -138,6 +137,23 @@ export const PledgeForm: React.FC<Props> = ({
             Firma este hex en Tonalli o herramienta externa, luego pega el hex firmado abajo para
             hacer broadcast.
           </p>
+          <div style={{ marginTop: 12, padding: 12, border: '1px dashed #ddd', borderRadius: 8 }}>
+            <strong>Sign with Tonalli</strong>
+            <p style={{ marginTop: 6 }}>
+              Open Tonalli to sign and broadcast, then return here with your txid.
+            </p>
+            <button type="button" onClick={handleTonalli}>
+              Open Tonalli to Sign & Broadcast
+            </button>
+            {tonalliUrl && (
+              <p style={{ marginTop: 8 }}>
+                <a href={tonalliUrl} target="_blank" rel="noreferrer">
+                  Open Tonalli in a new tab
+                </a>
+              </p>
+            )}
+            {tonalliMessage && <p>{tonalliMessage}</p>}
+          </div>
           <label>Signed Tx Hex</label>
           <textarea
             value={signedHex}
@@ -151,17 +167,6 @@ export const PledgeForm: React.FC<Props> = ({
             </button>
           </div>
           {broadcastResult && <p>{broadcastResult}</p>}
-          <button type="button" onClick={handleTonalli} disabled={tonalliLoading}>
-            {tonalliLoading ? 'Opening Tonalli...' : 'Sign & Broadcast with Tonalli'}
-          </button>
-          {tonalliPopupUrl && (
-            <p>
-              <a href={tonalliPopupUrl} target="_blank" rel="noreferrer">
-                Open Tonalli in a new tab
-              </a>
-            </p>
-          )}
-          {tonalliResult && <p>{tonalliResult}</p>}
           <p>
             <em>Si Tonalli no abre, usa el flujo de pegar hex firmado y hacer broadcast.</em>
           </p>
