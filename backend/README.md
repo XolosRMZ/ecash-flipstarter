@@ -4,7 +4,7 @@ Express + TypeScript backend scaffold for Flipstarter 2.0. Provides campaign, pl
 
 ## Configuration
 
-Chronik mode uses the base URL with or without the `/xec` suffix, depending on your proxy.
+Chronik mode uses the base URL without the `/xec` suffix.
 
 ```
 E_CASH_BACKEND=chronik
