@@ -14,8 +14,9 @@ Monorepo for a covenant-driven crowdfunding system on eCash. Contracts, backend 
    ```
    cd frontend
    npm install
-   export VITE_API_BASE_URL=http://localhost:3001/api
-   export VITE_TONALLI_BASE_URL=https://cartera.xolosarmy.xyz
+   cp .env.local.example .env.local
+   export VITE_API_BASE_URL=http://127.0.0.1:3001/api
+   export VITE_TONALLI_BASE_URL=http://127.0.0.1:5174
    npm run dev
    ```
 
@@ -47,13 +48,15 @@ npm run dev
 
 **CHRONIK_BASE_URL** = URL base del API Chronik cuando `E_CASH_BACKEND=chronik` (por defecto `https://chronik.e.cash`). Puede incluir `/xec` si tu reverse proxy lo requiere.
 
-**ALLOWED_ORIGIN** = Origen permitido para CORS en el backend. En producción, configura tu dominio (ej. `https://cartera.xolosarmy.xyz`); en desarrollo se usa `http://127.0.0.1:5173` si no se define.
+**CORS_ORIGINS** = Orígenes permitidos para CORS en el backend. En producción, configura tu dominio (ej. `https://cartera.xolosarmy.xyz`), separado por comas.
+**CORS_ALLOW_DEV_LOCALHOST** = Permite orígenes locales (localhost/127.0.0.1) en desarrollo. Default: `true` en dev.
 
 **PORT** = Puerto del backend (por defecto 3001).
 
 Frontend:
 **VITE_API_BASE_URL** = API base URL para el backend.
 **VITE_TONALLI_BASE_URL** = URL base de Tonalli para el deeplink `/#/external-sign`.
+**VITE_TONALLI_CALLBACK_URL** = URL opcional para sobrescribir el callback de Tonalli. Si no coincide con el origen actual en dev, se usa el origen en runtime.
 
 ## Local test plan
 Backend:
@@ -68,8 +71,8 @@ Frontend:
 ```
 cd frontend
 npm install
-export VITE_API_BASE_URL=http://localhost:3001/api
-export VITE_TONALLI_BASE_URL=https://cartera.xolosarmy.xyz
+export VITE_API_BASE_URL=http://127.0.0.1:3001/api
+export VITE_TONALLI_BASE_URL=http://127.0.0.1:5174
 npm run dev
 ```
 
@@ -136,3 +139,14 @@ SIGNED_TX_HEX="..." ./scripts/smoke-test.sh
 ```
 
 If you see `EADDRINUSE`, stop the existing process or change `PORT` (backend) or the Vite port (frontend) before retrying.
+
+## Local dev ports + CORS checks
+- Backend: `http://127.0.0.1:3001`
+- Wallet (RMZ/Tonalli local): `http://127.0.0.1:5174`
+- Frontend (Vite): `http://127.0.0.1:5173` or `http://127.0.0.1:5175` if 5173 is taken (callback uses runtime origin)
+
+Validate CORS:
+```
+curl -i -H "Origin: http://127.0.0.1:5175" http://127.0.0.1:3001/api/health
+curl -i -X OPTIONS -H "Origin: http://127.0.0.1:5175" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type" http://127.0.0.1:3001/api/campaign
+```

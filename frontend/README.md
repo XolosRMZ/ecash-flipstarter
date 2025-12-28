@@ -7,6 +7,8 @@ Simple React/Vite UI to request unsigned covenant transactions from the backend.
 npm install
 ```
 
+Prefer `.env.local` for dev overrides (see `.env.local.example`), `.env` for production defaults.
+
 Set API base URL (defaults to http://localhost:3001/api):
 ```
 export VITE_API_BASE_URL=http://localhost:3001/api
@@ -31,6 +33,15 @@ export VITE_TONALLI_BRIDGE_ORIGIN=https://cartera.xolosarmy.xyz
 export VITE_TONALLI_BRIDGE_PATH=/#/external-sign
 export VITE_TONALLI_TIMEOUT_MS=120000
 ```
+
+Local dev defaults:
+```
+VITE_API_BASE_URL=http://127.0.0.1:3001/api
+VITE_TONALLI_BASE_URL=http://127.0.0.1:5174
+```
+
+The Tonalli callback URL resolves from the runtime origin (`window.location.origin + "/#/tonalli-callback"`)
+unless `VITE_TONALLI_CALLBACK_URL` is explicitly set.
 
 Test flow:
 1) Build a pledge to get the unsigned hex.

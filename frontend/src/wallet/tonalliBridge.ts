@@ -23,6 +23,17 @@ function getEnv(): TonalliBridgeEnv {
   return (import.meta as any).env || {};
 }
 
+function isDevEnv(env?: TonalliBridgeEnv): boolean {
+  const meta = env as { DEV?: boolean; MODE?: string } | undefined;
+  if (meta?.DEV !== undefined) {
+    return Boolean(meta.DEV);
+  }
+  if (meta?.MODE) {
+    return meta.MODE !== 'production';
+  }
+  return false;
+}
+
 function normalizeUrl(value?: string): string {
   return (value || '').trim().replace(/\/+$/, '');
 }
@@ -68,8 +79,9 @@ export function resolveTonalliBridgeOrigin(
 export function resolveTonalliBridgeConfig(options?: TonalliBridgeOptions): TonalliBridgeConfig {
   const baseUrl = resolveTonalliBridgeBaseUrl(options);
   const origin = resolveTonalliBridgeOrigin(baseUrl, options);
+  const env = options?.env ?? getEnv();
 
-  if (!logged && typeof window !== 'undefined') {
+  if (!logged && typeof window !== 'undefined' && isDevEnv(env)) {
     logged = true;
     const hostname = resolveHostname(options);
     console.info('[tonalli] bridge config', { hostname, baseUrl, origin });

@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import campaignsRouter from './routes/campaigns.routes';
 import pledgeRouter from './routes/pledge.routes';
 import finalizeRouter from './routes/finalize.routes';
@@ -14,28 +15,38 @@ import {
 export function createApp() {
   const app = express();
 
-  const defaultOrigin = 'http://127.0.0.1:5173';
-  const allowedOrigin = (process.env.ALLOWED_ORIGIN || defaultOrigin).trim();
-  // Allow only the configured origin; no wildcard in production.
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin && origin !== allowedOrigin) {
-      if (req.method === 'OPTIONS') {
-        return res.sendStatus(403);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const allowDevLocalhostEnv = process.env.CORS_ALLOW_DEV_LOCALHOST;
+  const allowDevLocalhost =
+    allowDevLocalhostEnv === undefined
+      ? !isProduction
+      : ['1', 'true', 'yes', 'on'].includes(allowDevLocalhostEnv.trim().toLowerCase());
+  const allowedOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const devLocalhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+  const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
       }
-      return res.status(403).json({ error: 'cors-not-allowed' });
-    }
-    if (origin) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Vary', 'Origin');
-    }
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
-    next();
-  });
+      const isAllowed =
+        allowedOrigins.includes(origin) || (allowDevLocalhost && devLocalhostRegex.test(origin));
+      if (!isProduction) {
+        console.log(`[cors] origin ${isAllowed ? 'allowed' : 'blocked'}: ${origin}`);
+      }
+      callback(null, isAllowed);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
+  };
+
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
 
   app.use(express.json());
 

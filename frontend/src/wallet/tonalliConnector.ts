@@ -46,7 +46,8 @@ export async function signAndBroadcastWithTonalli(
 ): Promise<TonalliSignResult> {
   const env = getEnv();
   const { baseUrl: bridgeUrl, origin: bridgeOrigin } = resolveTonalliBridgeConfig({ env });
-  const bridgePath = env.VITE_TONALLI_BRIDGE_PATH || '/#/external-sign';
+  const rawBridgePath = env.VITE_TONALLI_BRIDGE_PATH || '/#/external-sign';
+  const bridgePath = rawBridgePath === '/' ? '/#/external-sign' : rawBridgePath;
   const timeoutMs = Number(env.VITE_TONALLI_TIMEOUT_MS || 120000);
 
   const requestId = crypto.randomUUID();

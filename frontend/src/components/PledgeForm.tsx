@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { broadcastTx, createPledgeTx } from '../api/client';
 import type { BuiltTxResponse } from '../api/types';
-import { buildTonalliExternalSignUrl } from '../wallet/tonalliDeeplink';
+import { buildTonalliExternalSignUrl, resolveTonalliCallbackUrl } from '../wallet/tonalliDeeplink';
 
 interface Props {
   campaignId: string;
@@ -74,9 +74,9 @@ export const PledgeForm: React.FC<Props> = ({
       return;
     }
 
-    const returnUrl = `${window.location.origin}/#/tonalli-callback?campaignId=${encodeURIComponent(
-      campaignId,
-    )}`;
+    const callbackBase = resolveTonalliCallbackUrl();
+    const separator = callbackBase.includes('?') ? '&' : '?';
+    const returnUrl = `${callbackBase}${separator}campaignId=${encodeURIComponent(campaignId)}`;
     const url = buildTonalliExternalSignUrl({
       unsignedTxHex: unsignedHex,
       returnUrl,
