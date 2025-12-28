@@ -1,9 +1,17 @@
+node_modules/
 **/node_modules/
+dist/
 **/dist/
+build/
+.vite/
+**/.vite/
+.env
+.env.*
 **/.env
 backend/node_modules/
 backend/dist/
 backend/.env
 .npm-cache/
+*.log
 npm-debug.log*
 .DS_Store

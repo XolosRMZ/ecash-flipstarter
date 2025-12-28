@@ -16,11 +16,7 @@ export function createApp() {
   const app = express();
 
   const isProduction = process.env.NODE_ENV === 'production';
-  const allowDevLocalhostEnv = process.env.CORS_ALLOW_DEV_LOCALHOST;
-  const allowDevLocalhost =
-    allowDevLocalhostEnv === undefined
-      ? !isProduction
-      : ['1', 'true', 'yes', 'on'].includes(allowDevLocalhostEnv.trim().toLowerCase());
+  const allowDevLocalhost = !isProduction;
   const allowedOrigins = (process.env.CORS_ORIGINS || '')
     .split(',')
     .map((origin) => origin.trim())
