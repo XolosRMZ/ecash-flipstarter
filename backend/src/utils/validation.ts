@@ -1,4 +1,5 @@
 import { Address } from '@ecash/lib';
+import { isValidCashAddress } from 'ecashaddrjs';
 
 export const HEX_PATTERN = /^[0-9a-fA-F]+$/;
 const MIN_HEX_LENGTH = 20;
@@ -21,14 +22,47 @@ export function validateHex(raw: string): string {
 }
 
 export function validateAddress(raw: string, field: string): string {
-  const trimmed = raw.trim();
+  const trimmed = String(raw ?? '').trim();
   if (!trimmed) {
     throw new Error(`${field}-required`);
   }
-  try {
-    Address.parse(trimmed);
-  } catch (err) {
-    throw new Error(`${field}-invalid`);
+
+  const lower = trimmed.toLowerCase();
+  let prefix = '';
+  let payload = lower;
+  const separatorIndex = lower.indexOf(':');
+  const hasPrefix = separatorIndex > 0;
+
+  if (hasPrefix) {
+    prefix = lower.slice(0, separatorIndex);
+    payload = lower.slice(separatorIndex + 1);
   }
-  return trimmed;
+
+  const candidates: string[] = [];
+
+  if (hasPrefix) {
+    candidates.push(lower);
+    if (prefix === 'ecash' || prefix === 'etoken') {
+      candidates.push(`bitcoincash:${payload}`);
+    }
+    if (prefix === 'bitcoincash') {
+      candidates.push(`ecash:${payload}`);
+    }
+  } else {
+    candidates.push(`ecash:${payload}`);
+    candidates.push(`bitcoincash:${payload}`);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      Address.parse(candidate);
+      return `ecash:${payload}`;
+    } catch {
+      if (isValidCashAddress(candidate)) {
+        return `ecash:${payload}`;
+      }
+    }
+  }
+
+  throw new Error(`${field}-invalid`);
 }
