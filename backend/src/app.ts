@@ -1,80 +1,117 @@
 import express from 'express';
+import cors from 'cors';
 import campaignsRouter from './routes/campaigns.routes';
 import pledgeRouter from './routes/pledge.routes';
 import finalizeRouter from './routes/finalize.routes';
 import refundRouter from './routes/refund.routes';
-import { CHRONIK_BASE_URL, ECASH_BACKEND, USE_CHRONIK } from './config/ecash';
-import { getChronikBlockchainInfo, rpcCall } from './blockchain/ecashClient';
+import broadcastRouter from './routes/broadcast.routes';
+import { ECASH_BACKEND, USE_CHRONIK } from './config/ecash';
+import {
+  getBlockchainInfo,
+  getEffectiveChronikBaseUrl,
+  getTipHeight,
+} from './blockchain/ecashClient';
 
-const app = express();
+export function createApp() {
+  const app = express();
 
-const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
-// CORS muy abierto para desarrollo
-app.use((req, res, next) => {
-  res.header(
-    'Access-Control-Allow-Origin',
-    allowedOrigin === '*' ? '*' : allowedOrigin
-  );
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept'
-  );
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+  const isProduction = process.env.NODE_ENV === 'production';
+  const allowDevLocalhost = !isProduction;
+  const allowedOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const devLocalhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
+  const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      const isAllowed =
+        allowedOrigins.includes(origin) || (allowDevLocalhost && devLocalhostRegex.test(origin));
+      if (!isProduction) {
+        console.log(`[cors] origin ${isAllowed ? 'allowed' : 'blocked'}: ${origin}`);
+      }
+      callback(null, isAllowed);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
+  };
 
-app.use(express.json());
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
 
-// Healthchecks
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
+  app.use(express.json());
 
-app.get('/api/health', async (_req, res) => {
+  // Healthchecks
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
+
+  app.get('/api/health', healthHandler);
+
+  // Rutas de la API
+  app.use('/api', campaignsRouter);
+  app.use('/api', pledgeRouter);
+  app.use('/api', finalizeRouter);
+  app.use('/api', refundRouter);
+  app.use('/api', broadcastRouter);
+
+  return app;
+}
+
+export async function healthHandler(_req: express.Request, res: express.Response) {
+  const timestamp = new Date().toISOString();
   try {
     if (USE_CHRONIK) {
       try {
-        const chainInfo = await getChronikBlockchainInfo();
+        const blockchainInfo = await getBlockchainInfo();
+        const tipHeight =
+          (blockchainInfo as { tipHeight?: number }).tipHeight ??
+          (blockchainInfo as { tip_height?: number }).tip_height ??
+          0;
         res.json({
           status: 'ok',
+          network: 'XEC',
           backendMode: ECASH_BACKEND,
-          chronikBaseUrl: CHRONIK_BASE_URL,
-          tipHeight: chainInfo.tipHeight,
+          chronikBaseUrl: getEffectiveChronikBaseUrl(),
+          tipHeight,
+          timestamp,
         });
         return;
       } catch (err) {
-        res.status(500).json({
+        const message = err instanceof Error ? err.message : String(err);
+        res.json({
           status: 'error',
-          backendMode: ECASH_BACKEND,
-          chronikBaseUrl: CHRONIK_BASE_URL,
-          error: (err as Error).message,
+          network: 'XEC',
+          backendMode: 'chronik',
+          chronikBaseUrl: getEffectiveChronikBaseUrl(),
+          error: `Chronik protobuf client failed: ${message}`,
+          timestamp,
         });
         return;
       }
     }
-    const info = await rpcCall<any>('getblockchaininfo');
+    const tipHeight = await getTipHeight();
     res.json({
       status: 'ok',
+      network: 'XEC',
       backendMode: ECASH_BACKEND,
-      network: info.chain || 'XEC',
-      blocks: info.blocks,
-      headers: info.headers,
-      bestHash: info.bestblockhash?.slice(0, 8) ?? null,
-      timestamp: Date.now(),
+      tipHeight,
+      timestamp,
     });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: (err as Error).message });
+    res.json({
+      status: 'error',
+      backendMode: ECASH_BACKEND,
+      error: (err as Error).message,
+      timestamp,
+    });
   }
-});
+}
 
-// Rutas de la API
-app.use('/api', campaignsRouter);
-app.use('/api', pledgeRouter);
-app.use('/api', finalizeRouter);
-app.use('/api', refundRouter);
-
+const app = createApp();
 export default app;

@@ -13,6 +13,10 @@ export const CampaignDetail: React.FC = () => {
     if (!id) return;
     fetchCampaign(id).then(setCampaign).catch(() => setCampaign(null));
   }, [id]);
+  const refreshCampaign = () => {
+    if (!id) return;
+    fetchCampaign(id).then(setCampaign).catch(() => setCampaign(null));
+  };
 
   if (!id) return <p>Missing campaign id</p>;
   if (!campaign) return <p>Loading campaign...</p>;
@@ -28,7 +32,7 @@ export const CampaignDetail: React.FC = () => {
       <ProgressBar current={current} goal={goal} />
       <p>Goal: {goal.toString()} sat</p>
       <p>Current: {current.toString()} sat</p>
-      <PledgeForm campaignId={id} />
+      <PledgeForm campaignId={id} onBroadcastSuccess={refreshCampaign} />
     </div>
   );
 };

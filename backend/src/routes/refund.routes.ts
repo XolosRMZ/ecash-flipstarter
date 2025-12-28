@@ -1,13 +1,14 @@
 import { Router } from 'express';
-import { RefundService } from '../services/RefundService.js';
-import { serializeBuiltTx } from './serialize.js';
+import { RefundService } from '../services/RefundService';
+import { serializeBuiltTx } from './serialize';
+import { validateAddress } from '../utils/validation';
 
 const router = Router();
 const service = new RefundService();
 
 router.post('/campaign/:id/refund', async (req, res) => {
   try {
-    const refundAddress = req.body.refundAddress as string;
+    const refundAddress = validateAddress(req.body.refundAddress as string, 'refundAddress');
     const refundAmount = BigInt(req.body.refundAmount);
     const tx = await service.createRefundTx(req.params.id, refundAddress, refundAmount);
     res.json(serializeBuiltTx(tx));
