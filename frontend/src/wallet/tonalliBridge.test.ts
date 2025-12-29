@@ -8,7 +8,7 @@ describe('resolveTonalliBridgeBaseUrl', () => {
       hostname: 'localhost',
     });
 
-    expect(baseUrl).toBe('http://127.0.0.1:5174');
+    expect(baseUrl).toBe('http://localhost:5174');
   });
 
   it('keeps env value in production', () => {
