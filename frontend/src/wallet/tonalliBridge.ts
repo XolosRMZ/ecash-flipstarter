@@ -14,7 +14,7 @@ export type TonalliBridgeConfig = {
   origin: string;
 };
 
-const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:5174';
+const DEFAULT_BRIDGE_URL = 'http://localhost:5174';
 const LOCAL_BRIDGE_PORT = '5174';
 
 let logged = false;
@@ -45,10 +45,10 @@ function resolveHostname(options?: TonalliBridgeOptions): string {
 }
 
 function resolveLocalBaseUrl(hostname: string): string {
-  if (hostname === 'localhost') {
-    return `http://localhost:${LOCAL_BRIDGE_PORT}`;
+  if (hostname === '127.0.0.1') {
+    return `http://127.0.0.1:${LOCAL_BRIDGE_PORT}`;
   }
-  return `http://127.0.0.1:${LOCAL_BRIDGE_PORT}`;
+  return `http://localhost:${LOCAL_BRIDGE_PORT}`;
 }
 
 export function resolveTonalliBridgeBaseUrl(options?: TonalliBridgeOptions): string {
@@ -65,16 +65,6 @@ export function resolveTonalliBridgeBaseUrl(options?: TonalliBridgeOptions): str
       baseUrl.includes('cartera.xolosarmy.xyz') || baseUrl.startsWith('https://');
     if (shouldOverride) {
       baseUrl = localBaseUrl;
-    } else {
-      try {
-        const baseHost = new URL(baseUrl).hostname;
-        const baseIsLocal = baseHost === 'localhost' || baseHost === '127.0.0.1';
-        if (baseIsLocal && baseHost !== hostname) {
-          baseUrl = localBaseUrl;
-        }
-      } catch {
-        // ignore invalid URL
-      }
     }
   }
 
