@@ -6,19 +6,7 @@ import { validateAddress } from '../utils/validation';
 const router = Router();
 const service = new CampaignService();
 
-router.post('/campaign', async (req, res) => {
-  try {
-    if (typeof req.body.beneficiaryAddress === 'string' && req.body.beneficiaryAddress.trim()) {
-      req.body.beneficiaryAddress = validateAddress(req.body.beneficiaryAddress, 'beneficiaryAddress');
-    }
-    const campaign = await service.createCampaign(req.body);
-    res.json(campaign);
-  } catch (err) {
-    res.status(400).json({ error: (err as Error).message });
-  }
-});
-
-router.get('/campaign', async (_req, res) => {
+const listCampaignsHandler: Parameters<typeof router.get>[1] = (_req, res) => {
   try {
     const campaigns = service.listCampaigns();
     const payload = Array.isArray(campaigns)
@@ -35,7 +23,22 @@ router.get('/campaign', async (_req, res) => {
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
+};
+
+router.post('/campaign', async (req, res) => {
+  try {
+    if (typeof req.body.beneficiaryAddress === 'string' && req.body.beneficiaryAddress.trim()) {
+      req.body.beneficiaryAddress = validateAddress(req.body.beneficiaryAddress, 'beneficiaryAddress');
+    }
+    const campaign = await service.createCampaign(req.body);
+    res.json(campaign);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });
+
+router.get('/campaign', listCampaignsHandler);
+router.get('/campaigns', listCampaignsHandler);
 
 router.get('/campaign/:id', async (req, res) => {
   try {
