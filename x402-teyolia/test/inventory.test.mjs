@@ -68,3 +68,44 @@ describe('el inventario detecta cada patrón (fixture sintético, no vacuo)', ()
     assert.ok(p.flagged.get('boot').reached.includes('TRANSMITE'));
   });
 });
+
+// PR-2 commit 2 (Auditor PR1-L3): el escáner falla cerrado ante accesos a process.env que no
+// reduce a un nombre literal. Fixtures generados en tmp (uno por patrón).
+import { mkdirSync as _mk, mkdtempSync as _mkd, rmSync as _rm, writeFileSync as _wf } from 'node:fs';
+import { tmpdir as _tmp } from 'node:os';
+describe('PR1-L3: escáner de process.env fail-closed', () => {
+  const root = _mkd(path.join(_tmp(), 'x402-l3-'));
+  process.on('exit', () => _rm(root, { recursive: true, force: true }));
+  let k = 0;
+  const gen = async (code) => {
+    const dir = path.join(root, `c${++k}`);
+    _mk(dir, { recursive: true });
+    _wf(path.join(dir, 'm.ts'), code);
+    return generateInventory(dir);
+  };
+  const bad = [
+    ['alias desestructurado de process', 'const { env } = process;\nexport const a = env.SECRET_A;\n'],
+    ['(process as any)[\'env\']', "export const a = (process as any)['env'].SECRET_A;\n"],
+    ["process['env']", "export const a = process['env'].SECRET_A;\n"],
+    ['globalThis.process', 'export const a = globalThis.process.env.SECRET_A;\n'],
+    ["import { env } from 'node:process'", "import { env } from 'node:process';\nexport const a = env.SECRET_A;\n"],
+    ['alias de process.env', 'const e = process.env;\nexport const a = e.SECRET_A;\n'],
+    ['spread de process.env', 'export const a = { ...process.env };\n'],
+    ['Object.keys(process.env)', 'export const a = Object.keys(process.env);\n'],
+    ['process como argumento', 'declare function f(x: unknown): void;\nf(process);\n'],
+    ["require('process')", "export const a = require('process').env.SECRET_A;\n"],
+  ];
+  for (const [label, code] of bad) {
+    test(`rechaza: ${label}`, async () => {
+      await assert.rejects(gen(code), /PR1-L3: .*INDETERMINADO \| m:\d+/s);
+    });
+  }
+  test('no rechaza: strings con "process", process.exit, desestructuración directa de process.env', async () => {
+    const text = await gen("export const msg = 'Failed to process payout';\nexport const { A_NAME } = process.env;\nexport const b = process.env.B_NAME;\nexport function q() { process.exit(1); }\n");
+    const p = parseInventory(text);
+    assert.ok(p.envNames.has('A_NAME') && p.envNames.has('B_NAME'));
+  });
+  test('backend/src @ 239f9dc no tiene ningún acceso indeterminado: el inventario archivado no cambia', async () => {
+    assert.equal(await generateInventory(), archived);
+  });
+});

@@ -123,6 +123,29 @@ function enclosingFunction(code, index) {
   return name ?? '(nivel de módulo)';
 }
 
+// PR1-L3 (PR-2 commit 2): accesos a process / process.env que el escáner no puede reducir a un
+// nombre literal. Fail-closed: cualquier coincidencia hace fallar la generación (y por tanto
+// inventory:check). Si no hay coincidencias la salida es byte a byte la misma.
+const INDETERMINATE = [
+  ['process sin acceso por punto (alias, argumento o índice)', /(?<![\w$])(?<!(?<!\.\.)\.)process(?![\w$])(?!\s*\??\.\s*[A-Za-z_$])/g],
+  ['process.env sin nombre literal (alias, spread, enumeración o argumento)', /(?<![\w$])(?<!(?<!\.\.)\.)process\s*\??\.\s*env(?![\w$])(?!\s*\??\.\s*[A-Za-z_$])(?!\s*\??\.?\s*\[)/g],
+  ['globalThis/global.process', /(?<![\w$.])(?:globalThis|global)\s*(?:\??\.\s*process(?![\w$])|\[)/g],
+  ["import/require de 'process' o 'node:process'", /(?:from\s*|require\s*\(\s*|import\s*\(\s*)(['"`])(?:node:)?process\1/g],
+];
+export function findIndeterminate(code, id) {
+  const hits = [];
+  const bare = stripComments(code, { blankStrings: true });
+  for (const [label, re] of INDETERMINATE) {
+    const text = label.startsWith('import') ? code : bare;
+    for (const m of text.matchAll(re)) {
+      // Desestructuración directa `{ A, B } = process.env` ya la cubre el escáner.
+      if (label.startsWith('process.env') && /\}\s*=\s*$/.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
+      hits.push(`INDETERMINADO | ${id}:${lineOf(text, m.index)} | ${label}`);
+    }
+  }
+  return hits;
+}
+
 export async function generateInventory(srcDir = DEFAULT_SRC) {
   const guard = await loadGuard();
   const files = listSourceFiles(srcDir);
@@ -141,6 +164,11 @@ export async function generateInventory(srcDir = DEFAULT_SRC) {
   const readerFunctions = new Map();
   const moduleDirect = new Map();
 
+  const indeterminate = [];
+  for (const [, info] of fileInfo) indeterminate.push(...findIndeterminate(info.code, info.id));
+  if (indeterminate.length > 0) {
+    throw new Error(`PR1-L3: accesos a process.env no reducibles a nombre literal (fail-closed):\n${indeterminate.join('\n')}`);
+  }
   for (const [, info] of fileInfo) {
     const { code, id } = info;
     const marks = new Set();
