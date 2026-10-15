@@ -18,7 +18,8 @@
     "inventory:check": "node scripts/inventory.mjs --check"
   },
   "dependencies": {
-    "express": "5.2.1"
+    "express": "5.2.1",
+    "supports-color": "8.1.1"
   },
   "devDependencies": {
     "@types/express": "5.0.6",
