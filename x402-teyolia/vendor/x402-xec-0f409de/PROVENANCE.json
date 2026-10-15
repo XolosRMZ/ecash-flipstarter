@@ -1,0 +1,38 @@
+{
+  "source": {
+    "repo": "https://github.com/xolosArmy/x402-XEC",
+    "commit": "0f409dea2959b397ecc4bb84d71519ec6e3aec04",
+    "commitDate": "2026-09-22T17:19:37-07:00",
+    "pnpmLockSha256": "4dafe0c812d689883f98b4b5340a7b9e67c70e9f26427157c4162394662c8eab"
+  },
+  "build": {
+    "script": "scripts/build-x402-vendor.sh",
+    "node": "v22.13.1",
+    "pnpm": "10.28.0",
+    "env": { "SOURCE_DATE_EPOCH": "1790122777", "TZ": "UTC", "LC_ALL": "C" }
+  },
+  "tarballs": {
+    "x402-xec-core-0.1.0.tgz": {
+      "name": "@x402-xec/core",
+      "version": "0.1.0",
+      "sha256": "a4ed4dd274d039c9a8989042776821598992a5d5022666bc294d6f6644e0e58d",
+      "tarSha256": "22ea94c30ea7f6ae327ea821a6e0c7f33abc9c6aadfc6be90fe496070fd54622",
+      "integrity": "sha512-LieyU7SCKDNhr/QRmjo2CP5mboN4TnJ5QMlITkLQ6sEmwNdATEP3iMgUxZZw52HnSDhaQVdvEYZwPAHvM9/1lw=="
+    },
+    "x402-xec-express-0.1.0.tgz": {
+      "name": "@x402-xec/express",
+      "version": "0.1.0",
+      "sha256": "6342d7827f882ebcd5b59bdd0270b778445f49a1457a74b1051ee1cd40264e6d",
+      "tarSha256": "428c8c5b32658c38a156e791a6764e1cc24a00b120200f4b76ac6b7518e371fa",
+      "integrity": "sha512-CIzEuYB/0PlYeVzg9kx3ECIffphpRdlQhdO6YqMR3coQS0XuyDpr/l/Xm22ybnsL5kPj/Bx44Cwg1sF9Qsq7rw=="
+    }
+  },
+  "transitive": {
+    "zod": { "version": "4.4.3", "integrity": "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==" },
+    "ecashaddrjs": { "version": "2.0.1", "integrity": "sha512-DYsejp4PTdGTutTqcejiRUWxZ0IOzmzadpG1xRE3q+mtBvxAoTn3da5TuSteUV5LYhU+izlFR09ufg3Gy+Hzog==" },
+    "@scure/bip32": { "version": "1.7.0", "integrity": "sha512-E4FFX/N3f4B80AKWp5dP6ow+flD1LQZo/w8UnLGYZO674jS6YnYeepycOOksv+vLPSpgN35wgKgy+ybfTb2SMw==" },
+    "@scure/base": { "version": "1.2.6", "integrity": "sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==" },
+    "@noble/curves": { "version": "1.9.7", "integrity": "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==" },
+    "@noble/hashes": { "version": "1.8.0", "integrity": "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==" }
+  }
+}
