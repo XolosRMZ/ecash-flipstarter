@@ -2,7 +2,9 @@
 // rechazar un fixture construido para violarlo, y el bundle real debe pasar.
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -236,13 +238,129 @@ describe('T-11a endurecido (PR-2 commit 1)', () => {
     const g = buildGraph(path.join(PACKAGE_ROOT, 'dist', 'main.js'), { exceptions: [...loadExceptions(), extra] });
     expectA(g, /excepción obsoleta.*no-existe/);
   });
-  test('la lista real de excepciones es exactamente express/lib/view.js:81 y se usa', () => {
+  test('la lista real de excepciones de la superficie main es exactamente la revisada y se usa entera', () => {
     const g = buildGraph(path.join(PACKAGE_ROOT, 'dist', 'main.js'));
-    assert.deepEqual(g.usedExceptions.map((e) => `${e.package}@${e.version}:${e.file}:${e.line}:${e.kind}`), ['express@5.2.1:lib/view.js:81:require-no-literal']);
+    assert.deepEqual(g.usedExceptions.map((e) => `${e.package}@${e.version}:${e.file}:${e.line}:${e.kind}`).sort(), [
+      'depd@2.0.0:index.js:425:codegen',
+      'express@5.2.1:lib/view.js:81:require-no-literal',
+      'function-bind@1.1.2:implementation.js:74:codegen',
+      'get-intrinsic@1.3.0:index.js:23:codegen',
+      'get-intrinsic@1.3.0:index.js:91:codegen',
+    ]);
   });
   test('supports-color 8.1.1 y has-flag 4.0.0 están en el cierre de producción (require opcional no declarado de debug, src/node.js:32)', () => {
     assert.equal(LOCK.entries.get('node_modules/supports-color')?.version, '8.1.1');
     assert.equal(LOCK.entries.get('node_modules/has-flag')?.version, '4.0.0');
     assert.ok(LOCK.directDeps.has('supports-color'));
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// PR-2b C4 (dictamen PR-2 P2-L4; I-4): ESM en paquetes, condiciones `import`, codegen y la
+// superficie vendorizada. Paquetes ESM sintéticos en tmp.
+// ---------------------------------------------------------------------------------------
+import { ESM_CONDITIONS, SURFACES, resolveEsm } from '../scripts/check-graph.mjs';
+
+function syntheticEsm({ pkgJson = {}, files, parentPkgs = {}, lockExtra = {}, exceptions = [] }) {
+  const base = path.join(TMP, `esm-${++seq}`);
+  const pkg = path.join(base, 'pkg');
+  write(path.join(pkg, 'main.js'), "await import('fakepkg');\n");
+  const packages = { '': { dependencies: { fakepkg: '1.0.0' } }, 'node_modules/fakepkg': { version: '1.0.0' }, ...lockExtra };
+  write(path.join(pkg, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages }));
+  const dir = path.join(pkg, 'node_modules', 'fakepkg');
+  write(path.join(dir, 'package.json'), JSON.stringify({ name: 'fakepkg', version: '1.0.0', type: 'module', ...pkgJson }));
+  for (const [f, code] of Object.entries(files)) write(path.join(dir, f), code);
+  for (const [name, { json = {}, code }] of Object.entries(parentPkgs)) {
+    write(path.join(base, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: '1.0.0', type: 'module', main: 'index.js', ...json }));
+    write(path.join(base, 'node_modules', name, 'index.js'), code);
+  }
+  const g = buildGraph(path.join(pkg, 'main.js'), { ownRoot: pkg, containRoot: pkg, lock: lockfileClosure(path.join(pkg, 'package-lock.json')), exceptions });
+  return { g, base, pkg, dir };
+}
+
+describe('T-11a ESM (PR-2b C4)', () => {
+  test('e1: import() no literal en un paquete ESM -> rechazado', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': "const n = 'x';\nexport default await import(n);\n" } });
+    expectA(g, /import-no-literal no revisado en fakepkg@1\.0\.0:index\.js:2 \(n\)/);
+  });
+  test('e2: export * from un paquete que solo está en el padre -> rechazado (SÍ se resuelve fuera)', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': "export * from 'pkg-fuera';\n" }, parentPkgs: { 'pkg-fuera': { code: 'export const a = 1;\n' } } });
+    expectA(g, /fuera del lockfile que SÍ se resuelve.*pkg-fuera/);
+  });
+  test('e2b: export { a } from un paquete del lock presente solo en el padre -> resuelto fuera del paquete', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': "export { a } from 'pkg-lock';\n" }, lockExtra: { 'node_modules/pkg-lock': { version: '1.0.0' } }, parentPkgs: { 'pkg-lock': { code: 'export const a = 1;\n' } } });
+    expectA(g, /resuelto fuera del paquete: .*node_modules\/pkg-lock\/index\.js/);
+  });
+  test('e3: import.meta.resolve en un paquete -> rechazado (opaque)', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': "export const u = import.meta.resolve('./x.js');\n" } });
+    expectA(g, /opaque no revisado en fakepkg@1\.0\.0:index\.js:1 \(import\.meta\.resolve\)/);
+  });
+  test('e4: module.register / import { register } from node:module en un paquete -> rechazado', () => {
+    const a = syntheticEsm({ files: { 'index.js': "import module from 'node:module';\nmodule.register('./hook.js', import.meta.url);\n" } });
+    expectA(a.g, /opaque no revisado en fakepkg@1\.0\.0:index\.js:2 \(module\.register\)/);
+    const b = syntheticEsm({ files: { 'index.js': "import { register } from 'node:module';\nregister('./hook.js', import.meta.url);\n" } });
+    expectA(b.g, /opaque no revisado en fakepkg@1\.0\.0:index\.js:1 \(import \{ register \} from 'node:module'\)/);
+  });
+  test('e5 (I-4): exports solo con condición require, importado desde ESM -> no resuelve (createRequire sí lo habría resuelto)', () => {
+    const { g } = syntheticEsm({ pkgJson: { exports: { '.': { require: './index.cjs' } } }, files: { 'index.cjs': 'module.exports = 1;\n' } });
+    expectA(g, /no se pudo resolver el paquete fakepkg/);
+  });
+  test('e6: generación de código sin excepción (new Function, Function(), alias, eval) -> rechazado', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': "export const a = new Function('return 1');\nconst F = Function;\nexport const b = eval('1');\nexport const c = Function('return 2');\n" } });
+    for (const [line, spec] of [[1, 'new Function'], [2, '= Function'], [3, 'eval'], [4, 'Function']]) expectA(g, new RegExp(`codegen no revisado en fakepkg@1\\.0\\.0:index\\.js:${line} \\(${spec}\\)`));
+  });
+  test('e6b: texto "Function(" dentro de un string o comentario no cuenta como codegen', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': "// new Function('x')\nexport const s = 'new Function(1)';\n" } });
+    assert.deepEqual(checkT11a(g), []);
+  });
+  test('e7 (positivo): exports con import/require elige la rama import; patrones * y subrutas', () => {
+    const { g, dir } = syntheticEsm({
+      pkgJson: { exports: { '.': { require: './cjs.cjs', import: './esm.js' }, './sub/*': { import: './lib/*.js' } } },
+      files: { 'esm.js': "export * from 'fakepkg/sub/b';\n", 'cjs.cjs': 'module.exports = 1;\n', 'lib/b.js': 'export const b = 1;\n' },
+    });
+    assert.deepEqual(checkT11a(g), []);
+    const files = [...g.nodes.values()].filter((n) => n.kind === 'package').map((n) => path.relative(dir, n.file)).sort();
+    assert.deepEqual(files, ['esm.js', path.join('lib', 'b.js')]);
+    assert.deepEqual(ESM_CONDITIONS, ['node', 'import', 'default']);
+  });
+  test('e8 (n7 codegen): alias o constructLine que ya no coinciden -> falla', () => {
+    const code = "const F = Function;\nexport const f = () => new F('return 1');\n";
+    const files = { 'index.js': code };
+    const ok = { surface: 'main', package: 'fakepkg', version: '1.0.0', file: 'index.js', line: 1, kind: 'codegen', spec: '= Function', alias: 'F', constructLine: 2, justification: 'e8' };
+    const sha = createHash('sha256').update(code).digest('hex');
+    assert.deepEqual(checkT11a(syntheticEsm({ files, exceptions: [{ ...ok, sha256: sha }] }).g), []);
+    expectA(syntheticEsm({ files, exceptions: [{ ...ok, sha256: sha, constructLine: 1 }] }).g, /excepción que ya no coincide \(constructLine 1\)/);
+    expectA(syntheticEsm({ files, exceptions: [{ ...ok, sha256: sha, alias: 'G' }] }).g, /excepción que ya no coincide \(constructLine 2\)/);
+  });
+  test('e9: especificador #imports en un paquete -> falla cerrado', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': "import x from '#internal';\nexport default x;\n" } });
+    expectA(g, /especificador de imports \(#\) no soportado: #internal/);
+  });
+  test('resolveEsm resuelve la superficie vendorizada con condiciones import (no CJS)', () => {
+    const from = path.join(PACKAGE_ROOT, SURFACES.vendor);
+    assert.equal(path.relative(PACKAGE_ROOT, resolveEsm('@x402-xec/express', from)), path.join('node_modules', '@x402-xec', 'express', 'dist', 'index.js'));
+    assert.equal(path.relative(PACKAGE_ROOT, resolveEsm('@x402-xec/core/sqlite', from)), path.join('node_modules', '@x402-xec', 'core', 'dist', 'sqlite-invoice-store.js'));
+    assert.throws(() => createRequire(from).resolve('@x402-xec/express'), /ERR_PACKAGE_PATH_NOT_EXPORTED|No "exports" main defined/);
+  });
+});
+
+describe('superficie vendorizada (--surface vendor)', () => {
+  const g = buildGraph(path.join(PACKAGE_ROOT, SURFACES.vendor), { surface: 'vendor' });
+  test('T-11a/b/c OK; solo los 8 paquetes del cierre vendorizado; todo dentro del paquete', () => {
+    assert.deepEqual(checkT11a(g), []);
+    assert.deepEqual(checkT11b(g), []);
+    assert.deepEqual(checkT11c(g, INVENTORY), []);
+    const pkgs = [...new Set([...g.nodes.values()].filter((n) => n.kind === 'package').map((n) => n.pkg))].sort();
+    assert.deepEqual(pkgs, ['@noble/curves', '@noble/hashes', '@scure/base', '@scure/bip32', '@x402-xec/core', '@x402-xec/express', 'ecashaddrjs', 'zod']);
+  });
+  test('excepciones de la superficie vendor: exactamente zod doc.js:28→33 y util.js:156→157', () => {
+    assert.deepEqual(g.usedExceptions.map((e) => `${e.package}@${e.version}:${e.file}:${e.line}→${e.constructLine}:${e.kind}`).sort(), [
+      'zod@4.4.3:v4/core/doc.js:28→33:codegen',
+      'zod@4.4.3:v4/core/util.js:156→157:codegen',
+    ]);
+  });
+  test('n8 en vendor: excepción vendor sin uso -> obsoleta', () => {
+    const extra = { surface: 'vendor', package: 'zod', version: '4.4.3', file: 'v4/core/no-existe.js', line: 1, kind: 'codegen', spec: 'x', sha256: '0'.repeat(64), justification: 'n8' };
+    expectA(buildGraph(path.join(PACKAGE_ROOT, SURFACES.vendor), { surface: 'vendor', exceptions: [...loadExceptions(), extra] }), /excepción obsoleta.*no-existe/);
   });
 });

@@ -10,7 +10,12 @@
 //          del grafo.
 //   T-11c: cruce con el inventario del commit exacto: ningún módulo marcado (directo o
 //          transitivo) aparece en el grafo, ni por ruta real ni como copia (sufijo de ruta).
-// Uso: node scripts/check-graph.mjs [dist/main.js] [--json]
+//   PR-2b C4 (dictamen PR-2 P2-L4; I-4): en paquetes también se siguen `import`/`export … from`
+//          e `import()` (ESM), resueltos con condiciones ESM ["node","import","default"] (no con
+//          createRequire); `import()` no literal, `import.meta.resolve`, `module.register` y la
+//          generación de código (`Function`, `eval`) son sitios que solo pasan con excepción revisada.
+//          `--surface vendor` recorre la superficie vendorizada (scripts/vendor-surface.mjs).
+// Uso: node scripts/check-graph.mjs [dist/main.js | --surface vendor]
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
@@ -44,6 +49,23 @@ const PACKAGE_OPAQUE = [
   /\[\s*(['"`])(?:_load|_resolveFilename|_compile|mainModule)\1\s*\]/g,
   /\bmainModule\b/g,
 ];
+// PR-2b C4: cargadores ESM opacos y generación de código desde strings (sitios en paquetes).
+const PACKAGE_ESM_OPAQUE = [
+  /import\.meta\.resolve\s*\(/g,
+  /(?<![\w$])(?:module|Module|nodeModule)\s*\.\s*register(?:Hooks)?\s*\(/g,
+  /(?<![\w$.])registerHooks\s*\(/g,
+];
+// Sobre el código con strings (el especificador es un string): import { register } de node:module.
+const PACKAGE_ESM_OPAQUE_SPEC = [/import\s*\{[^}]*\bregister(?:Hooks)?\b[^}]*\}\s*from\s*['"](?:node:)?module['"]/g];
+const PACKAGE_CODEGEN = [
+  /(?<![\w$.])(?:new\s+)?Function\s*\(/g,
+  /(?<![\w$.])(?:globalThis|global|window|self)\s*\.\s*Function\b/g,
+  /=\s*Function\b(?!\s*[.(\w$])/g,
+  /(?<![\w$.])eval\s*\(/g,
+  /[:=,(]\s*eval\b(?!\s*[(\w$])/g,
+];
+export const ESM_CONDITIONS = ['node', 'import', 'default'];
+export const SURFACES = { vendor: 'scripts/vendor-surface.mjs' };
 
 function toPosix(p) {
   return p.split(path.sep).join('/');
@@ -57,6 +79,68 @@ function isInside(child, parent) {
 function packageNameOf(spec) {
   const parts = spec.split('/');
   return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+}
+
+/** Directorio del paquete `name` visible desde `fromFile` (algoritmo de node_modules ascendente). */
+function findPackageDir(name, fromFile) {
+  let dir = path.dirname(fromFile);
+  for (;;) {
+    if (path.basename(dir) !== 'node_modules') {
+      const c = path.join(dir, 'node_modules', name);
+      if (existsSync(path.join(c, 'package.json'))) return c;
+    }
+    const up = path.dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
+}
+
+/**
+ * Resolución ESM (I-4): `exports` con condiciones ESM, patrones `*`, y `main` legado si no hay
+ * `exports`. Sin NODE_PATH ni carpetas globales (ESM no las usa). Devuelve null si no resuelve.
+ * Los especificadores `#…` (campo `imports`) no se admiten: quien los use falla cerrado.
+ */
+export function resolveEsm(spec, fromFile, conditions = ESM_CONDITIONS) {
+  if (spec.startsWith('#')) return null;
+  const name = packageNameOf(spec);
+  const subpath = `.${spec.slice(name.length)}`;
+  const pkgDir = findPackageDir(name, fromFile);
+  if (!pkgDir) return null;
+  const pj = JSON.parse(readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+  const isFile = (f) => existsSync(f) && statSync(f).isFile();
+  const pick = (t, star) => {
+    if (typeof t === 'string') return star === null ? t : t.replaceAll('*', star);
+    if (Array.isArray(t)) { for (const x of t) { const r = pick(x, star); if (r) return r; } return null; }
+    if (t && typeof t === 'object') { for (const [c, v] of Object.entries(t)) if (conditions.includes(c)) { const r = pick(v, star); if (r) return r; } }
+    return null;
+  };
+  if (pj.exports !== undefined && pj.exports !== null) {
+    let map = pj.exports;
+    if (typeof map === 'string' || Array.isArray(map) || !Object.keys(map).some((k) => k.startsWith('.'))) map = { '.': map };
+    let t = null;
+    if (Object.hasOwn(map, subpath)) t = pick(map[subpath], null);
+    else {
+      let best = null;
+      for (const k of Object.keys(map)) {
+        const i = k.indexOf('*');
+        if (i < 0) continue;
+        const pre = k.slice(0, i);
+        const post = k.slice(i + 1);
+        if (subpath.startsWith(pre) && subpath.endsWith(post) && subpath.length >= pre.length + post.length && (!best || pre.length > best.pre.length)) best = { k, pre, star: subpath.slice(pre.length, subpath.length - post.length) };
+      }
+      if (best) t = pick(map[best.k], best.star);
+    }
+    if (!t) return null;
+    const f = path.join(pkgDir, t);
+    return isFile(f) ? f : null;
+  }
+  if (subpath === '.') {
+    const main = pj.main ?? 'index.js';
+    for (const c of [main, `${main}.js`, `${main}.json`, path.join(main, 'index.js'), 'index.js']) if (isFile(path.join(pkgDir, c))) return path.join(pkgDir, c);
+    return null;
+  }
+  const f = path.join(pkgDir, subpath);
+  return isFile(f) ? f : null;
 }
 
 /** Cierre de producción del lockfile v3: entradas sin `dev: true`. */
@@ -95,11 +179,11 @@ function scanOwnFile(code) {
     /(?:^|[;\n}])\s*import\s+(?:[\w$*{}\s,]+?\s+from\s+)?(['"])([^'"\n]+)\1/g,
     /(?:^|[;\n}])\s*export\s+(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s+(['"])([^'"\n]+)\1/g,
   ];
-  for (const re of staticRes) for (const m of code.matchAll(re)) edges.push({ spec: m[2], dynamic: false });
+  for (const re of staticRes) for (const m of code.matchAll(re)) edges.push({ spec: m[2], dynamic: false, esm: true });
   for (const m of code.matchAll(/(?<![\w$.])import\s*\(/g)) {
     const rest = code.slice(m.index + m[0].length);
     const lit = /^\s*(['"])([^'"\n]+)\1\s*[),]/.exec(rest);
-    if (lit) edges.push({ spec: lit[2], dynamic: true });
+    if (lit) edges.push({ spec: lit[2], dynamic: true, esm: true });
     else problems.push('import() dinámico con especificador no literal');
   }
   for (const needle of BLOCKLIST.opaqueLoaders) {
@@ -114,10 +198,12 @@ function lineAt(code, index) {
   return n;
 }
 
-function scanPackageFile(code) {
+function scanPackageFile(code, bare) {
   const edges = [];
   const warnings = [];
   const sites = [];
+  // `bare`: el mismo código con strings/regex vaciados (para no confundir texto con código).
+  bare ??= code;
   for (const m of code.matchAll(/(?<![\w$.])require\s*\(\s*([^)]*)\)/g)) {
     const lit = /^\s*(['"])([^'"\n]+)\1\s*$/.exec(m[1]);
     if (lit) edges.push({ spec: lit[2], dynamic: false, line: lineAt(code, m.index) });
@@ -129,7 +215,20 @@ function scanPackageFile(code) {
   for (const re of PACKAGE_OPAQUE) {
     for (const m of code.matchAll(re)) sites.push({ kind: 'opaque', line: lineAt(code, m.index), spec: m[0].replace(/\s*\($/, '') });
   }
-  for (const m of code.matchAll(/(?:^|[;\n}])\s*import\s+(?:[\w$*{}\s,]+?\s+from\s+)?(['"])([^'"\n]+)\1/g)) edges.push({ spec: m[2], dynamic: false, line: lineAt(code, m.index) });
+  const esmStatic = [
+    /(?:^|[;\n}])\s*import\s+(?:[\w$*{}\s,]+?\s+from\s+)?(['"])([^'"\n]+)\1/g,
+    /(?:^|[;\n}])\s*export\s+(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*(['"])([^'"\n]+)\1/g,
+  ];
+  for (const re of esmStatic) for (const m of code.matchAll(re)) edges.push({ spec: m[2], dynamic: false, esm: true, line: lineAt(code, m.index + m[0].search(/\S/)) });
+  for (const m of bare.matchAll(/(?<![\w$.])import\s*\(/g)) {
+    const rest = code.slice(m.index + m[0].length);
+    const lit = /^\s*(['"])([^'"\n]+)\1\s*[),]/.exec(rest);
+    if (lit) edges.push({ spec: lit[2], dynamic: true, esm: true, line: lineAt(code, m.index) });
+    else sites.push({ kind: 'import-no-literal', line: lineAt(code, m.index), spec: rest.slice(0, rest.search(/[)\n]/)).trim() });
+  }
+  for (const re of PACKAGE_ESM_OPAQUE) for (const m of bare.matchAll(re)) sites.push({ kind: 'opaque', line: lineAt(code, m.index), spec: m[0].replace(/\s*\($/, '').replace(/\s+/g, ' ').slice(0, 60) });
+  for (const re of PACKAGE_ESM_OPAQUE_SPEC) for (const m of code.matchAll(re)) sites.push({ kind: 'opaque', line: lineAt(code, m.index), spec: m[0].replace(/\s+/g, ' ').slice(0, 60) });
+  for (const re of PACKAGE_CODEGEN) for (const m of bare.matchAll(re)) sites.push({ kind: 'codegen', line: lineAt(code, m.index + m[0].search(/[\w$]/)), spec: m[0].replace(/\s*\($/, '').replace(/\s+/g, ' ') });
   return { edges, warnings, sites };
 }
 
@@ -144,7 +243,10 @@ export function buildGraph(entry, opts = {}) {
   const ownRoot = realOrSelf(opts.ownRoot ?? PACKAGE_ROOT);
   const containRoot = realOrSelf(opts.containRoot ?? PACKAGE_ROOT);
   const lock = opts.lock ?? lockfileClosure(path.join(PACKAGE_ROOT, 'package-lock.json'));
-  const exceptions = opts.exceptions ?? loadExceptions();
+  // Cada excepción pertenece a una superficie (main por defecto; vendor para --surface vendor):
+  // así n8 (obsoleta) se evalúa contra el grafo al que pertenece.
+  const surface = opts.surface ?? 'main';
+  const exceptions = (opts.exceptions ?? loadExceptions()).filter((e) => (e.surface ?? 'main') === surface);
   const usedExceptions = new Set();
   const externalSpecs = new Set();
   const nodes = new Map();
@@ -178,6 +280,13 @@ export function buildGraph(entry, opts = {}) {
     const sha = createHash('sha256').update(readFileSync(node.file)).digest('hex');
     if (e.version !== info.version || e.sha256 !== sha) {
       addProblem(`T-11a: excepción que ya no coincide (versión o SHA-256) en ${where}`);
+      return false;
+    }
+    // codegen por alias (`const F = Function` … `new F(…)`): la línea de construcción registrada
+    // debe contener la construcción; si cambia, la excepción deja de coincidir.
+    const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (e.constructLine !== undefined && !(e.alias && new RegExp(`(?<![\\w$.])(?:new\\s+)?${esc(e.alias)}\\s*\\(`).test(node.raw.split('\n')[e.constructLine - 1] ?? ''))) {
+      addProblem(`T-11a: excepción que ya no coincide (constructLine ${e.constructLine}) en ${where}`);
       return false;
     }
     return true;
@@ -235,7 +344,7 @@ export function buildGraph(entry, opts = {}) {
       continue;
     }
     node.raw = readFileSync(file, 'utf8');
-    const scan = node.kind === 'own' ? scanOwnFile(code) : scanPackageFile(code);
+    const scan = node.kind === 'own' ? scanOwnFile(code) : scanPackageFile(code, stripComments(node.raw, { blankStrings: true }));
     if (node.kind === 'own') for (const p of scan.problems) addProblem(`T-11a: ${p} en ${toPosix(path.relative(REPO_ROOT, file))}`);
     else {
       node.warnings.push(...scan.warnings);
@@ -272,10 +381,14 @@ export function buildGraph(entry, opts = {}) {
         continue;
       }
       let target = null;
-      try {
-        target = createRequire(file).resolve(spec);
-      } catch {
-        target = null;
+      if (spec.startsWith('#')) addProblem(`T-11a: especificador de imports (#) no soportado: ${spec} en ${toPosix(path.relative(REPO_ROOT, file))}`);
+      else if (edge.esm) target = resolveEsm(spec, file);
+      else {
+        try {
+          target = createRequire(file).resolve(spec);
+        } catch {
+          target = null;
+        }
       }
       if (node.kind === 'package' && !lock.names.has(name)) {
         externalSpecs.add(name);
@@ -297,7 +410,7 @@ export function buildGraph(entry, opts = {}) {
   exceptions.forEach((e, i) => {
     if (!usedExceptions.has(i)) addProblem(`T-11a: excepción obsoleta (no aparece en el grafo): ${e.package}:${e.file}:${e.line} ${e.kind}`);
   });
-  return { entry: entryAbs, ownRoot, containRoot, nodes, problems, externalSpecs, usedExceptions: [...usedExceptions].map((i) => exceptions[i]) };
+  return { entry: entryAbs, surface, ownRoot, containRoot, nodes, problems, externalSpecs, usedExceptions: [...usedExceptions].map((i) => exceptions[i]) };
 }
 
 export function checkT11a(graph) {
@@ -372,19 +485,26 @@ export function summarize(graph) {
 }
 
 async function cli(argv) {
-  const entry = path.resolve(argv.find((a) => !a.startsWith('--')) ?? path.join(PACKAGE_ROOT, 'dist', 'main.js'));
+  const si = argv.indexOf('--surface');
+  const surface = si >= 0 ? argv[si + 1] : 'main';
+  if (si >= 0 && !SURFACES[surface]) {
+    process.stderr.write(`check-graph: superficie desconocida ${surface}\n`);
+    return 2;
+  }
+  const positional = argv.filter((a, i) => !a.startsWith('--') && !(si >= 0 && i === si + 1));
+  const entry = path.resolve(si >= 0 ? path.join(PACKAGE_ROOT, SURFACES[surface]) : positional[0] ?? path.join(PACKAGE_ROOT, 'dist', 'main.js'));
   if (!existsSync(entry)) {
     process.stderr.write(`check-graph: no existe ${entry} (ejecuta npm run build)\n`);
     return 2;
   }
-  const graph = buildGraph(entry);
+  const graph = buildGraph(entry, { surface });
   const inventoryText = readFileSync(INVENTORY_FILE, 'utf8');
   const a = checkT11a(graph);
   const b = checkT11b(graph);
   const c = checkT11c(graph, inventoryText);
   const s = summarize(graph);
   const out = [];
-  out.push(`check-graph: entrada ${toPosix(path.relative(REPO_ROOT, entry))}`);
+  out.push(`check-graph: entrada ${toPosix(path.relative(REPO_ROOT, entry))} (superficie ${surface})`);
   out.push(`  archivos propios (${s.own.length}): ${s.own.join(', ')}`);
   out.push(`  imports dinámicos seguidos: ${s.dynamicEdges.join('; ') || '-'}`);
   out.push(`  builtins en archivos propios: ${s.builtinsOwn.join(', ') || '-'}`);

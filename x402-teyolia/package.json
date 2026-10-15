@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "node --test --test-reporter=spec test/*.test.mjs",
-    "check:graph": "node scripts/check-graph.mjs dist/main.js",
+    "check:graph": "node scripts/check-graph.mjs dist/main.js && node scripts/check-graph.mjs --surface vendor",
     "check:vendor": "node scripts/check-vendor.mjs",
     "inventory": "node scripts/inventory.mjs --write",
     "inventory:check": "node scripts/inventory.mjs --check"
