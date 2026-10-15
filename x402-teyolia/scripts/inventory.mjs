@@ -128,18 +128,59 @@ function enclosingFunction(code, index) {
 // inventory:check). Si no hay coincidencias la salida es byte a byte la misma.
 const INDETERMINATE = [
   ['process sin acceso por punto (alias, argumento o índice)', /(?<![\w$])(?<!(?<!\.\.)\.)process(?![\w$])(?!\s*\??\.\s*[A-Za-z_$])/g],
-  ['process.env sin nombre literal (alias, spread, enumeración o argumento)', /(?<![\w$])(?<!(?<!\.\.)\.)process\s*\??\.\s*env(?![\w$])(?!\s*\??\.\s*[A-Za-z_$])(?!\s*\??\.?\s*\[)/g],
+  ['process.env sin nombre literal (alias, spread, enumeración o argumento)', /(?<![\w$])(?<!(?<!\.\.)\.)process\s*\??\.\s*env(?![\w$])(?!\s*\??\.\s*[A-Za-z_][A-Za-z0-9_]*(?![\w$]))(?!\s*\??\.?\s*\[)/g],
   ['globalThis/global.process', /(?<![\w$.])(?:globalThis|global)\s*(?:\??\.\s*process(?![\w$])|\[)/g],
   ["import/require de 'process' o 'node:process'", /(?:from\s*|require\s*\(\s*|import\s*\(\s*)(['"`])(?:node:)?process\1/g],
 ];
+// Cabeza `process.env` que la extracción reconoce: punto u optional chaining, con espacios o
+// comentarios (ya vaciados) entre process, el punto y env (P1 #63, hallazgo 1). La forma con
+// corchetes process['env'] / process["env"] no se extrae: sigue fallando cerrado por la regla 1.
+const ENV_HEAD = String.raw`process\s*(?:\?\.|\.)\s*env(?![\w$])`;
+const ENV_DIRECT = new RegExp(String.raw`${ENV_HEAD}\s*(?:\?\.|\.)\s*([A-Za-z_][A-Za-z0-9_]*)(?![\w$])`, 'g');
+const ENV_INDEX_LITERAL = new RegExp(String.raw`${ENV_HEAD}\s*(?:\?\.\s*)?\[\s*(['"${'`'}])([A-Za-z_][A-Za-z0-9_]*)\1\s*\]`, 'g');
+const ENV_INDEX_DYNAMIC = new RegExp(String.raw`${ENV_HEAD}\s*(?:\?\.\s*)?\[\s*(?!['"${'`'}][A-Za-z_][A-Za-z0-9_]*['"${'`'}]\s*\])([^\]]+)\]`, 'g');
+const ENV_DESTRUCT = new RegExp(String.raw`(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*${ENV_HEAD}(?!\s*(?:\?\.|\.|\[))`, 'g');
+const DESTRUCT_PART = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[A-Za-z_$][\w$]*)?\s*(?:=[^,]*)?$/;
+
+// P1 #63, hallazgo 2: `{ … } = process.env` solo queda exento si es exactamente la forma que
+// ENV_DESTRUCT reduce a nombres: declaración const/let/var, sin llaves ni corchetes dentro, y
+// cada propiedad es un identificador (alias y valor por defecto opcionales). Rest (`...x`), claves
+// computadas (`[k]`), claves entre comillas, patrones anidados y asignaciones sin declaración
+// fallan cerrado. `text` es el código con strings vaciados. Devuelve null si no hay `{…} =` delante.
+function destructuringExempt(text, index) {
+  let j = index - 1;
+  while (j >= 0 && /\s/.test(text[j])) j--;
+  if (text[j] !== '=' || /[=!<>+\-*/%&|^?]/.test(text[j - 1] ?? '')) return null;
+  j--;
+  while (j >= 0 && /\s/.test(text[j])) j--;
+  if (text[j] !== '}') return null;
+  const close = j;
+  let depth = 0;
+  for (; j >= 0; j--) {
+    if (text[j] === '}') depth++;
+    else if (text[j] === '{' && --depth === 0) break;
+  }
+  if (j < 0) return false;
+  const body = text.slice(j + 1, close);
+  if (!/(?:^|[^\w$.])(?:const|let|var)\s*$/.test(text.slice(Math.max(0, j - 12), j))) return false;
+  if (/[{}[\]]|\.\.\./.test(body)) return false;
+  return body.split(',').every((p) => p.trim() === '' || DESTRUCT_PART.test(p.trim()));
+}
+
 export function findIndeterminate(code, id) {
   const hits = [];
   const bare = stripComments(code, { blankStrings: true });
   for (const [label, re] of INDETERMINATE) {
     const text = label.startsWith('import') ? code : bare;
     for (const m of text.matchAll(re)) {
-      // Desestructuración directa `{ A, B } = process.env` ya la cubre el escáner.
-      if (label.startsWith('process.env') && /\}\s*=\s*$/.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
+      if (label.startsWith('process.env')) {
+        const d = destructuringExempt(text, m.index);
+        if (d === true) continue;
+        if (d === false) {
+          hits.push(`INDETERMINADO | ${id}:${lineOf(text, m.index)} | desestructuración de process.env con rest, clave computada o patrón no literal`);
+          continue;
+        }
+      }
       hits.push(`INDETERMINADO | ${id}:${lineOf(text, m.index)} | ${label}`);
     }
   }
@@ -172,7 +213,7 @@ export async function generateInventory(srcDir = DEFAULT_SRC) {
   for (const [, info] of fileInfo) {
     const { code, id } = info;
     const marks = new Set();
-    for (const m of code.matchAll(/process\.env\??\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    for (const m of code.matchAll(ENV_DIRECT)) {
       const after = code.slice(m.index + m[0].length, m.index + m[0].length + 4);
       const isWrite = /^\s*=(?!=)/.test(after);
       addRead(m[1], id, lineOf(code, m.index), isWrite ? 'escritura' : 'directa');
@@ -181,16 +222,16 @@ export async function generateInventory(srcDir = DEFAULT_SRC) {
         dynamicLines.push(`CANAL | ${id}:${lineOf(code, m.index)} | escritura process.env.${m[1]} en ${enclosingFunction(code, m.index)}`);
       }
     }
-    for (const m of code.matchAll(/process\.env\??\.?\[\s*(['"`])([A-Za-z_][A-Za-z0-9_]*)\1\s*\]/g)) {
+    for (const m of code.matchAll(ENV_INDEX_LITERAL)) {
       addRead(m[2], id, lineOf(code, m.index), 'índice literal');
     }
-    for (const m of code.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*process\.env\b/g)) {
+    for (const m of code.matchAll(ENV_DESTRUCT)) {
       for (const part of m[1].split(',')) {
         const nm = part.trim().split(/[:=\s]/)[0];
         if (nm && /^[A-Za-z_][A-Za-z0-9_]*$/.test(nm)) addRead(nm, id, lineOf(code, m.index), 'desestructurada');
       }
     }
-    for (const m of code.matchAll(/process\.env\??\.?\[\s*(?!['"`][A-Za-z_][A-Za-z0-9_]*['"`]\s*\])([^\]]+)\]/g)) {
+    for (const m of code.matchAll(ENV_INDEX_DYNAMIC)) {
       const line = lineOf(code, m.index);
       const after = code.slice(m.index + m[0].length, m.index + m[0].length + 4);
       const fn = enclosingFunction(code, m.index);
