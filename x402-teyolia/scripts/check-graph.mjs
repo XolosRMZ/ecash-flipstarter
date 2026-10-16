@@ -32,9 +32,18 @@ export function loadExceptions(file = EXCEPTIONS_FILE) {
   return JSON.parse(readFileSync(file, 'utf8')).entries ?? [];
 }
 // Cargadores opacos dentro de paquetes (recomendación del Auditor sobre PR1-L5).
-// P2-L3 (n3c): createRequire también precedido de punto (module.createRequire, Module.createRequire)
-// y el cargador interno _load (Module._load, require('module')._load).
-const PACKAGE_OPAQUE = [/(?<![\w$])module\.require\s*\(/g, /(?<![\w$])createRequire\s*\(/g, /\._load\s*\(/g, /process\.mainModule/g];
+// P2-L3 (n3c): createRequire también precedido de punto (module.createRequire, Module.createRequire).
+// P2a-L2 (dictamen PR-2a §2.1, propuesta del Auditor): los internos de Module `_load`, `_resolveFilename`
+// y `_compile` como identificador en cualquier posición (punto con espacios, alias, desestructuración)
+// o como clave entre corchetes, y `mainModule` como palabra (también process['mainModule']).
+// Falsos positivos (métodos propios `_load`, strings) fallan cerrado y se resuelven en la lista revisada.
+const PACKAGE_OPAQUE = [
+  /(?<![\w$])module\.require\s*\(/g,
+  /(?<![\w$])createRequire\b/g,
+  /(?<![\w$])(?:_load|_resolveFilename|_compile)\b/g,
+  /\[\s*(['"`])(?:_load|_resolveFilename|_compile|mainModule)\1\s*\]/g,
+  /\bmainModule\b/g,
+];
 
 function toPosix(p) {
   return p.split(path.sep).join('/');

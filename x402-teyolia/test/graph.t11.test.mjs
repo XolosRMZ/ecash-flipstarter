@@ -167,7 +167,32 @@ describe('T-11a endurecido (PR-2 commit 1)', () => {
   ]) {
     test(`n3c: cargador opaco ${label} en un paquete -> rechazado`, () => {
       const { g } = synthetic({ fakeIndex: code });
-      expectA(g, /opaque no revisado en fakepkg@1\.0\.0:index\.js:\d+ \((?:createRequire|\._load)\)/);
+      expectA(g, /opaque no revisado en fakepkg@1\.0\.0:index\.js:\d+ \((?:createRequire|_load)\)/);
+    });
+  }
+  // P2a-L2: los 12 casos de load_cases.mjs (sha256 0f93c3e5…25a9) con su resultado esperado bajo el
+  // patrón propuesto, más _resolveFilename / _compile. `true` = rechazado como opaque.
+  for (const [label, code, rejected] of [
+    ['Module._load(', "const M=require('module');M._load('fs')", true],
+    ["require('module') . _load ('fs') (espacios)", "require('module') . _load ('fs')", true],
+    ["Module['_load']", "const M=require('module');M['_load']('fs')", true],
+    ['alias const {_load}', "const {_load}=require('module');_load('fs')", true],
+    ['alias l=M._load; l()', "const M=require('module');const l=M._load;l('fs')", true],
+    ['globalThis.process.mainModule', "globalThis.process.mainModule.require('fs')", true],
+    ["process['mainModule']", "process['mainModule'].require('fs')", true],
+    ["Reflect.get(M,'_lo'+'ad') (indetectable estáticamente; residual documentado)", "Reflect.get(require('module'),'_lo'+'ad')('fs')", false],
+    ['método de clase this._load( (falso positivo aceptado, fail-closed)', 'class C{_load(x){return x} run(){return this._load(1)}}', true],
+    ["string 'x._load(' (falso positivo aceptado, fail-closed)", "const s='x._load(1)'", true],
+    ['comentario // M._load(', "// M._load('fs')\nconst a=1", false],
+    ['cache._loadAll(', 'cache._loadAll()', false],
+    ['Module._resolveFilename', "const M=require('module');M._resolveFilename('fs', null)", true],
+    ["Module['_compile']", "const M=require('module');new M()['_compile']('x','f')", true],
+    ['m . _compile (espacios)', "module . _compile('x','f')", true],
+  ]) {
+    test(`P2a-L2 load_cases: ${label} -> ${rejected ? 'rechazado' : 'no rechazado'}`, () => {
+      const { g } = synthetic({ fakeIndex: `${code};\nmodule.exports = 1;\n` });
+      const opaque = checkT11a(g).some((p) => /opaque no revisado en fakepkg@1\.0\.0/.test(p));
+      assert.equal(opaque, rejected);
     });
   }
   test('n4: paquete del lockfile que solo existe en el padre -> resuelto fuera del paquete', () => {
