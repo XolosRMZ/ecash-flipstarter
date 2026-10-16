@@ -66,15 +66,15 @@ describe('PR-3 grant (INF-042 §8.2): T-01, T-04, contexto y restricciones', () 
       assert.deepEqual(g.recordGrant(s), { ok: false, httpStatus: 500, code: 'X402_CONTEXT_MISSING' });
     }
   });
-  test('esquema: UNIQUE en invoice_hash, settled_txid y nonce; state solo GRANTED; delivery_count 0 (se cuenta en PR-4)', () => {
+  test('esquema: UNIQUE en invoice_hash, settled_txid y nonce; state solo GRANTED; delivery_count solo reentregas (PR-4, D-4)', () => {
     const db = new DatabaseSync(path.join(dir, 'grant.sqlite'), { readOnly: true });
     const idx = db.prepare("SELECT name FROM pragma_index_list('x402_access_grant') WHERE \"unique\" = 1").all().length;
     assert.ok(idx >= 3);
     const cols = db.prepare("SELECT name FROM pragma_table_info('x402_access_grant')").all().map((r) => r.name);
     assert.deepEqual(cols, ['grant_id', 'invoice_hash', 'settled_txid', 'nonce', 'resource_hash', 'amount_sats', 'pay_to', 'state', 'created_at', 'first_delivery_at', 'delivery_count']);
-    assert.ok(db.prepare('SELECT delivery_count FROM x402_access_grant').all().every((r) => r.delivery_count === 0));
+    assert.ok(db.prepare('SELECT delivery_count FROM x402_access_grant').all().every((r) => r.delivery_count === 0 || r.delivery_count === 1), 'T-01 hizo una reentrega');
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
-    assert.deepEqual(tables, ['x402_access_grant', 'x402_reconciliation'], 'sin ledger, contadores ni outbox (§8.2 paso 4)');
+    assert.deepEqual(tables, ['x402_access_grant', 'x402_late_payment_review', 'x402_reconciliation'], 'sin ledger, contadores ni outbox (§8.2 paso 4); PR-4 añade la revisión de pagos tardíos (M1/L-01)');
     db.close();
   });
   test('GrantDb rechaza rutas volátiles (:memory:, file:)', () => {
@@ -158,7 +158,7 @@ describe('PR-3 T-05: dos procesos Teyolia sobre la misma DB del grant', () => {
     new GrantDb(db).shutdown();
     const s = settlementOf(synthInvoice(), tx('e'));
     const json = JSON.stringify(s, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
-    const [a, b] = await Promise.all([runner(db, json, 40), runner(db, json, 40)]);
+    const [a, b] = await Promise.all([runner(db, json, 5), runner(db, json, 5)]); // PR-4 (D-4): 1 entrega + 9 reentregas <= 10
     const all = [...a, ...b];
     assert.equal(all.filter((x) => x.startsWith('GRANTED:')).length, 1);
     assert.equal(new Set(all.map((x) => x.split(':')[1])).size, 1, 'mismo grant_id en todas las respuestas');
