@@ -87,6 +87,7 @@ export function launch({ env, cwd, execArgv = [], timeoutMs = 8000 }) {
         finish({
           started: true,
           port: Number(m[1]),
+          child,
           get stdout() { return stdout; },
           get stderr() { return stderr; },
           stop: () => new Promise((res) => {

@@ -14,7 +14,14 @@ const esmLog = path.join(here, '.t11d-esm.log');
 fs.writeFileSync(esmLog, '');
 register(pathToFileURL(path.join(here, 'resolve-hook.mjs')).href, { data: { out: esmLog } });
 let surfaceError = null;
-await import(pathToFileURL(path.join(here, 'dist', 'main.js')).href);
+// PR-3: dist/main.js (fase 2) importa @x402-xec/core/sqlite y por tanto zod; si la copia no lo
+// tiene, el enlace falla. Se captura para que la sonda siga reportando la resolución (d-n4).
+let mainError = null;
+try {
+  await import(pathToFileURL(path.join(here, 'dist', 'main.js')).href);
+} catch (err) {
+  mainError = String(err?.message ?? err);
+}
 try {
   const { loadVendorSurface } = await import(pathToFileURL(path.join(here, 'scripts', 'vendor-surface.mjs')).href);
   const s = await loadVendorSurface();
@@ -27,6 +34,7 @@ const esm = [...new Set(fs.readFileSync(esmLog, 'utf8').split('\n').filter((u) =
 const report = {
   exitCode: process.exitCode ?? 0,
   surfaceError,
+  mainError,
   cache: Object.keys(Module._cache).map((f) => fs.realpathSync(f)),
   esm,
   globalPaths: Module.globalPaths,
@@ -34,4 +42,4 @@ const report = {
   prefixLibNodeExists: fs.existsSync(prefixLibNode),
 };
 process.stdout.write(`T11D ${JSON.stringify(report)}\n`);
-process.exit(report.exitCode || (surfaceError ? 1 : 0));
+process.exit(report.exitCode || (surfaceError || mainError ? 1 : 0));

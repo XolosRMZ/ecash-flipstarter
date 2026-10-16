@@ -224,7 +224,7 @@ describe('T-11a endurecido (PR-2 commit 1)', () => {
     symlinkSync(PACKAGE_ROOT, link, 'dir');
     const g = buildGraph(path.join(link, 'dist', 'main.js'));
     assert.deepEqual(checkT11a(g), []);
-    assert.equal([...g.nodes.values()].filter((n) => n.kind === 'own').length, 5);
+    assert.equal([...g.nodes.values()].filter((n) => n.kind === 'own').length, 8); // PR-3: + grant-db, invoice-store, persistence-config
   });
   test('n7: excepción que ya no coincide (SHA-256 o línea) -> falla', () => {
     const [e] = loadExceptions();
@@ -246,6 +246,9 @@ describe('T-11a endurecido (PR-2 commit 1)', () => {
       'function-bind@1.1.2:implementation.js:74:codegen',
       'get-intrinsic@1.3.0:index.js:23:codegen',
       'get-intrinsic@1.3.0:index.js:91:codegen',
+      // PR-3: zod alcanzado desde main por @x402-xec/core/sqlite (mismas entradas que vendor).
+      'zod@4.4.3:v4/core/doc.js:28:codegen',
+      'zod@4.4.3:v4/core/util.js:156:codegen',
     ]);
   });
   test('supports-color 8.1.1 y has-flag 4.0.0 están en el cierre de producción (require opcional no declarado de debug, src/node.js:32)', () => {
