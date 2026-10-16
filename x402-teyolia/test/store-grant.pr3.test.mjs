@@ -106,10 +106,12 @@ describe('PR-3 store + grant: T-02, T-03 (fallo entre commitPaid y el grant)', (
     await store.issue(rec);
     const paid = await store.commitPaid(rec.invoiceHash, tx('8'), 9_000);
     const src = paidSource([{ invoiceHash: rec.invoiceHash, settledTxid: tx('8'), settledAt: paid.record.settledAt }]);
-    assert.deepEqual(g.reconcile(src, 3_600), [], 'dentro de la ventana todavía no se marca');
-    now = 9_000 + 3_600;
-    assert.deepEqual(g.reconcile(src, 3_600), [rec.invoiceHash]);
-    assert.deepEqual(g.reconcile(src, 3_600), [], 'idempotente');
+    // PR-4 (D-2 (a)): la ventana ya no es libre; es expiración (300) + margen (300) = 600 s.
+    now = 9_000 + 599;
+    assert.deepEqual(g.reconcile(src, { expirySeconds: 300 }), [], 'dentro de la ventana todavía no se marca');
+    now = 9_000 + 600;
+    assert.deepEqual(g.reconcile(src, { expirySeconds: 300 }), [rec.invoiceHash]);
+    assert.deepEqual(g.reconcile(src, { expirySeconds: 300 }), [], 'idempotente');
     assert.equal(g.reconciliationState(rec.invoiceHash), 'RECONCILIATION_REQUIRED');
     assert.deepEqual(g.recordGrant({ ok: true, invoice: paid.record }), { ok: false, httpStatus: 409, code: 'RECONCILIATION_REQUIRED' });
     assert.equal((await store.getByInvoiceHash(rec.invoiceHash)).state, 'PAID', 'el store x402 no cambia');
@@ -119,9 +121,9 @@ describe('PR-3 store + grant: T-02, T-03 (fallo entre commitPaid y el grant)', (
     await store.issue(rec);
     const paid = await store.commitPaid(rec.invoiceHash, tx('9'), 1);
     assert.equal(g.recordGrant({ ok: true, invoice: paid.record }).status, 'GRANTED');
-    assert.deepEqual(g.reconcile(paidSource([{ invoiceHash: rec.invoiceHash, settledTxid: tx('9'), settledAt: 1 }]), 0), []);
+    assert.deepEqual(g.reconcile(paidSource([{ invoiceHash: rec.invoiceHash, settledTxid: tx('9'), settledAt: 1 }]), { expirySeconds: 300 }), []);
     assert.equal(g.reconciliationState(rec.invoiceHash), null);
-    assert.throws(() => g.reconcile(paidSource([]), -1), RangeError);
+    for (const e of [-1, 0, 1.5, 3601, undefined]) assert.throws(() => g.reconcile(paidSource([]), { expirySeconds: e }), RangeError);
   });
   test('el store es el de @x402-xec/core/sqlite (durable) y cierra con checkpoint; shutdown idempotente', () => {
     assert.equal(store.isDurable, true);

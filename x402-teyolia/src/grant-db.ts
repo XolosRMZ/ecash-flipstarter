@@ -8,6 +8,7 @@
 // verificado (`request.x402Settlement`) como dato inyectado.
 
 import { DatabaseSync } from 'node:sqlite';
+import { reconcileMinAgeSeconds } from './reconcile.js';
 import { enableWal } from './sqlite-wal.js';
 
 export { WAL_RETRY_ATTEMPTS, WAL_RETRY_BUDGET_MS, WAL_RETRY_DELAY_MS } from './sqlite-wal.js';
@@ -26,7 +27,7 @@ export interface SettlementContext {
   };
 }
 
-/** Fuente inyectada de facturas PAID para la conciliación (T-03). Ver decisión abierta D-2. */
+/** Fuente de facturas PAID para la conciliación (T-03). D-2 (a): ReadOnlyStoreReader (store-reader.ts). */
 export interface PaidInvoiceSource {
   listPaid(): Iterable<{ readonly invoiceHash: string; readonly settledTxid: string; readonly settledAt: number }>;
 }
@@ -140,12 +141,14 @@ export class GrantDb {
   }
 
   /**
-   * Conciliación (INF-042 §8.2 «Fallos entre commit y efecto»; T-03): toda factura PAID sin grant,
-   * liquidada hace al menos `minAgeSeconds`, queda marcada RECONCILIATION_REQUIRED para revisión
-   * humana. No reembolsa ni mueve fondos. Devuelve los invoiceHash marcados en esta pasada.
+   * Conciliación (INF-042 §8.2 «Fallos entre commit y efecto»; T-03; D-2 (a)): toda factura PAID
+   * sin grant cuya liquidación tenga al menos `reconcileMinAgeSeconds(expirySeconds)` segundos
+   * (= expiración + margen de reintento, ver reconcile.ts) queda marcada RECONCILIATION_REQUIRED
+   * para revisión humana (D-5). No reembolsa ni mueve fondos. La ventana no se puede fijar por
+   * debajo de ese mínimo: solo se recibe la expiración. Devuelve los invoiceHash marcados.
    */
-  reconcile(source: PaidInvoiceSource, minAgeSeconds: number): string[] {
-    if (!Number.isInteger(minAgeSeconds) || minAgeSeconds < 0) throw new RangeError('minAgeSeconds debe ser un entero >= 0');
+  reconcile(source: PaidInvoiceSource, opts: { readonly expirySeconds: number }): string[] {
+    const minAgeSeconds = reconcileMinAgeSeconds(opts?.expirySeconds);
     const db = this.#db;
     const now = this.#now();
     const marked: string[] = [];
@@ -156,7 +159,7 @@ export class GrantDb {
         `INSERT INTO x402_reconciliation (invoice_hash, settled_txid, state, marked_at) VALUES (?, ?, 'RECONCILIATION_REQUIRED', ?) ON CONFLICT DO NOTHING`,
       );
       for (const p of source.listPaid()) {
-        if (now - p.settledAt < minAgeSeconds || has.get(p.invoiceHash)) continue;
+        if (!Number.isSafeInteger(p.settledAt) || now - p.settledAt < minAgeSeconds || has.get(p.invoiceHash)) continue;
         if (Number(mark.run(p.invoiceHash, p.settledTxid, now).changes) === 1) marked.push(p.invoiceHash);
       }
       db.exec('COMMIT');
