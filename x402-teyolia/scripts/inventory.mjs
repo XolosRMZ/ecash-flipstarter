@@ -128,8 +128,15 @@ function enclosingFunction(code, index) {
 // inventory:check). Si no hay coincidencias la salida es byte a byte la misma.
 const INDETERMINATE = [
   ['process sin acceso por punto (alias, argumento o índice)', /(?<![\w$])(?<!(?<!\.\.)\.)process(?![\w$])(?!\s*\??\.\s*[A-Za-z_$])/g],
-  ['process.env sin nombre literal (alias, spread, enumeración o argumento)', /(?<![\w$])(?<!(?<!\.\.)\.)process\s*\??\.\s*env(?![\w$])(?!\s*\??\.\s*[A-Za-z_][A-Za-z0-9_]*(?![\w$]))(?!\s*\??\.?\s*\[)/g],
-  ['globalThis/global.process', /(?<![\w$.])(?:globalThis|global)\s*(?:\??\.\s*process(?![\w$])|\[)/g],
+  ['process.env sin nombre literal (alias, spread, enumeración o argumento)', /(?<![\w$])process\s*\??\.\s*env(?![\w$])(?!\s*\??\.\s*[A-Za-z_][A-Za-z0-9_]*(?![\w$]))(?!\s*\??\.?\s*\[)/g],
+  // P1 #63 (r4286391976): cualquier referencia a un objeto global (globalThis, global, self, window)
+  // falla cerrado, sea cual sea lo que siga: `.`, `?.`, `[`, `?.[`, alias (`const g = globalThis`),
+  // argumento (`Reflect.get(globalThis, …)`) o desestructuración (`{ process } = globalThis`).
+  // Sólo se exime el acceso como propiedad (`x.self`, `x?.global`). backend/src no los usa.
+  ['objeto global (globalThis/global/self/window)', /(?<![\w$])(?<!(?<!\.\.)\.)(?:globalThis|global|self|window)(?![\w$])/g],
+  ['acceso calculado a .process ([ o ?.[)', /(?<=[\w$)\]]\s*\??\.\s*)process\s*(?:\?\.\s*)?\[/g],
+  ['eval/Function (código dinámico que puede obtener el objeto global)', /(?<![\w$])(?<!(?<!\.\.)\.)(?:eval|Function)(?![\w$])/g],
+  ['escape \\u en identificador (p. ej. glob\\u0061lThis)', /\\u/g],
   ["import/require de 'process' o 'node:process'", /(?:from\s*|require\s*\(\s*|import\s*\(\s*)(['"`])(?:node:)?process\1/g],
 ];
 // Cabeza `process.env` que la extracción reconoce: punto u optional chaining, con espacios o

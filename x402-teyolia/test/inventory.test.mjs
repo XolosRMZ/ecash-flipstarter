@@ -195,3 +195,54 @@ describe('P1 #63: process.env con ?., espacios/comentarios, corchetes, rest y cl
     assert.ok(!/^ENV /m.test(text));
   });
 });
+
+// P1 #63 (discussion_r4286391976): acceso al objeto global con encadenamiento opcional y
+// variantes equivalentes. Todas fallan cerrado; ninguna se reduce a un nombre.
+describe('P1 #63: objeto global (globalThis/global/self/window) y rutas equivalentes a process', () => {
+  const root = _mkd(path.join(_tmp(), 'x402-p63g-'));
+  process.on('exit', () => _rm(root, { recursive: true, force: true }));
+  let k = 0;
+  const gen = async (code) => {
+    const dir = path.join(root, `c${++k}`);
+    _mk(dir, { recursive: true });
+    _wf(path.join(dir, 'm.ts'), code);
+    return generateInventory(dir);
+  };
+  const rejected = [];
+  for (const g of ['globalThis', 'global', 'self', 'window']) {
+    rejected.push(
+      [`${g}?.['process']?.env.X`, `export const a = (${g} as any)?.['process']?.env.SECRET_A;\n`],
+      [`${g}?.["process"].env.X`, `export const a = (${g} as any)?.["process"].env.SECRET_A;\n`],
+      [`${g}?.[\`process\`]?.env?.X`, `export const a = (${g} as any)?.[\`process\`]?.env?.SECRET_A;\n`],
+      [`${g}['process'].env.X`, `export const a = (${g} as any)['process'].env.SECRET_A;\n`],
+      [`${g}?.process?.env.X`, `export const a = (${g} as any)?.process?.env.SECRET_A;\n`],
+      [`${g} /*c*/ ?. \\n [ 'process' ]`, `export const a = (${g} /* c */ ?.\n  [ 'process' ] as any).env.SECRET_A;\n`],
+    );
+  }
+  rejected.push(
+    ['globalThis.globalThis?.[…]', "export const a = (globalThis.globalThis as any)?.['process'].env.SECRET_A;\n"],
+    ['window.self?.[…]', "export const a = (window.self as any)?.['process'].env.SECRET_A;\n"],
+    ['alias const g = globalThis', "const g: any = globalThis;\nexport const a = g?.['process']?.env.SECRET_A;\n"],
+    ['{ process } = globalThis', 'const { process: p } = globalThis as any;\nexport const a = p.env.SECRET_A;\n'],
+    ['Reflect.get(globalThis, …)', "export const a = (Reflect.get(globalThis, 'process') as any).env.SECRET_A;\n"],
+    ['Object.getOwnPropertyDescriptor(globalThis, …)', "export const a = Object.getOwnPropertyDescriptor(globalThis, 'process')!.value.env.SECRET_A;\n"],
+    ['x.process?.[\'env\'] (objeto con process como propiedad)', "declare const x: any;\nexport const a = x.process?.['env'].SECRET_A;\n"],
+    ['x?.process[k]', "declare const x: any; const k = 'env';\nexport const a = x?.process[k].SECRET_A;\n"],
+    ['alias x.process.env', 'declare const x: any;\nconst e = x.process.env;\nexport const a = e.SECRET_A;\n'],
+    ['(0, eval)(\'this\')', "export const a = (0, eval)('this').process.env;\n"],
+    ['Function(\'return this\')()', "export const a = Function('return this')()['process'];\n"],
+    ['escape unicode glob\\u0061lThis', 'export const a = (glob\\u0061lThis as any)?.[\'process\']?.env.SECRET_A;\n'],
+  );
+  for (const [label, code] of rejected) {
+    test(`rechaza: ${label}`, async () => {
+      await assert.rejects(gen(code), /PR1-L3: .*INDETERMINADO \| m:\d+/s);
+    });
+  }
+  test('el hallazgo exacto de Codex da la etiqueta de objeto global', async () => {
+    await assert.rejects(gen("export const a = (globalThis as any)?.['process']?.env.SECRET_A;\n"), /INDETERMINADO \| m:1 \| objeto global \(globalThis\/global\/self\/window\)/);
+  });
+  test('no rechaza: propiedades llamadas self/global/window y strings que las mencionan', async () => {
+    const text = await gen("declare const o: any;\nexport const s = 'globalThis window self';\nexport const n = o.self + o?.global + o.window;\nexport const b = process.env.B_NAME;\n");
+    assert.match(text, /^ENV B_NAME \|/m);
+  });
+});
