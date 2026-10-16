@@ -8,6 +8,9 @@
 // verificado (`request.x402Settlement`) como dato inyectado.
 
 import { DatabaseSync } from 'node:sqlite';
+import { enableWal } from './sqlite-wal.js';
+
+export { WAL_RETRY_ATTEMPTS, WAL_RETRY_BUDGET_MS, WAL_RETRY_DELAY_MS } from './sqlite-wal.js';
 
 /** Subconjunto de `request.x402Settlement` (SettlementVerificationSuccess) que usa el grant. */
 export interface SettlementContext {
@@ -49,44 +52,6 @@ export interface GrantDbOptions {
   readonly newId?: () => string;
 }
 
-/**
- * Reintento acotado del cambio a WAL (Codex #65). `PRAGMA journal_mode = WAL` necesita un lock
- * exclusivo y SQLite puede devolver SQLITE_BUSY sin pasar por el busy handler, así que busy_timeout
- * no lo cubre en un arranque en frío concurrente. Límites fijos: hasta WAL_RETRY_ATTEMPTS intentos,
- * con WAL_RETRY_DELAY_MS entre ellos y un tope total de WAL_RETRY_BUDGET_MS. Al agotarse falla
- * cerrado: cierra la conexión y lanza el error, y openPersistence aborta el arranque. Solo se
- * reintenta SQLITE_BUSY o SQLITE_LOCKED; cualquier otro error se propaga de inmediato.
- */
-export const WAL_RETRY_ATTEMPTS = 50;
-export const WAL_RETRY_DELAY_MS = 100;
-export const WAL_RETRY_BUDGET_MS = 5000;
-
-function isBusy(err: unknown): boolean {
-  const e = err as { errcode?: number; message?: string } | null;
-  const code = typeof e?.errcode === 'number' ? e.errcode & 0xff : -1;
-  return code === 5 || code === 6 || /database (table )?is locked|database is busy/i.test(String(e?.message ?? ''));
-}
-
-function enableWal(db: DatabaseSync): void {
-  const sleeper = new Int32Array(new SharedArrayBuffer(4));
-  const start = Date.now();
-  let last: unknown = null;
-  for (let i = 1; i <= WAL_RETRY_ATTEMPTS; i++) {
-    try {
-      const row = db.prepare('PRAGMA journal_mode = WAL').get() as { journal_mode?: string } | undefined;
-      if (String(row?.journal_mode).toLowerCase() === 'wal') return;
-      last = new Error(`journal_mode quedó en ${String(row?.journal_mode)}`);
-    } catch (err) {
-      if (!isBusy(err)) { db.close(); throw err; }
-      last = err;
-    }
-    if (i === WAL_RETRY_ATTEMPTS || Date.now() - start + WAL_RETRY_DELAY_MS > WAL_RETRY_BUDGET_MS) break;
-    Atomics.wait(sleeper, 0, 0, WAL_RETRY_DELAY_MS);
-  }
-  db.close();
-  throw new Error(`GrantDb: no se pudo activar WAL tras el reintento acotado (${WAL_RETRY_ATTEMPTS} intentos / ${WAL_RETRY_BUDGET_MS} ms): ${String((last as Error | null)?.message ?? last)}`);
-}
-
 const CONFLICT = Object.freeze({ ok: false, httpStatus: 409, code: 'EFFECT_BINDING_CONFLICT' } as const);
 
 export class GrantDb {
@@ -104,7 +69,7 @@ export class GrantDb {
     this.#db = new DatabaseSync(databasePath);
     // Codex #65: busy_timeout ANTES del cambio de journal mode y de cualquier DDL.
     this.#db.exec('PRAGMA busy_timeout = 5000;');
-    enableWal(this.#db);
+    enableWal(this.#db, 'GrantDb');
     this.#db.exec(`
       CREATE TABLE IF NOT EXISTS x402_access_grant (
         grant_id TEXT PRIMARY KEY,
