@@ -255,3 +255,50 @@ describe('PR-3 T-07 (TR-01): cierre ordenado con el store x402 abierto', () => {
     assert.ok(side(home).length > 0);
   });
 });
+
+// Codex #65: arranque en frío concurrente. Varios procesos abren a la vez una DB del grant que no
+// existe todavía (sin inicialización previa). Sin el parche (WAL antes de busy_timeout, sin
+// reintento) alguno falla al instante con «database is locked».
+describe('PR-3 Codex #65: arranque en frío concurrente de la DB del grant', () => {
+  const K = 8;
+  const ROUNDS = 5;
+  const opener = (dbPath, t0) => new Promise((resolve) => {
+    const code = `
+      const { GrantDb } = await import(${JSON.stringify(dist('grant-db.js'))});
+      while (Date.now() < ${t0});
+      try { new GrantDb(process.argv[1]).shutdown(); } catch (e) { process.stderr.write(String(e?.message ?? e)); process.exit(3); }`;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', code, dbPath], { env: { PATH: '/usr/bin:/bin' }, stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('exit', (c) => resolve({ code: c, err }));
+  });
+  test(`${K} procesos x ${ROUNDS} rondas contra DB nueva -> todos abren, WAL activo y esquema creado`, async () => {
+    for (let r = 0; r < ROUNDS; r++) {
+      const db = path.join(freshDir('x402-pr3-c65-'), 'grant.sqlite');
+      assert.equal(existsSync(db), false);
+      const t0 = Date.now() + 500;
+      const res = await Promise.all(Array.from({ length: K }, () => opener(db, t0)));
+      assert.deepEqual(res.filter((x) => x.code !== 0), [], `ronda ${r}: ningún proceso falla`);
+      const raw = new DatabaseSync(db);
+      assert.equal(raw.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
+      assert.equal(raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('x402_access_grant','x402_reconciliation')").get().n, 2);
+      raw.close();
+    }
+  });
+  test('reintento acotado agotado -> falla cerrado (lanza, sin quedar abierta) dentro del presupuesto', async () => {
+    const { WAL_RETRY_ATTEMPTS, WAL_RETRY_BUDGET_MS } = await import(dist('grant-db.js'));
+    assert.equal(WAL_RETRY_ATTEMPTS, 50);
+    assert.equal(WAL_RETRY_BUDGET_MS, 5000);
+    const db = path.join(freshDir('x402-pr3-c65x-'), 'grant.sqlite');
+    const holder = new DatabaseSync(db); // modo rollback (DELETE); un lector impide el cambio a WAL
+    holder.exec('CREATE TABLE h(a); INSERT INTO h VALUES (1); BEGIN; SELECT * FROM h;');
+    holder.prepare('SELECT * FROM h').get();
+    const t = Date.now();
+    const res = await opener(db, 0);
+    const ms = Date.now() - t;
+    holder.exec('COMMIT'); holder.close();
+    assert.equal(res.code, 3, 'el arranque falla');
+    assert.match(res.err, /no se pudo activar WAL|database is locked/);
+    assert.ok(ms < WAL_RETRY_BUDGET_MS * 2 + 3000, `acotado (${ms} ms)`);
+  });
+});
