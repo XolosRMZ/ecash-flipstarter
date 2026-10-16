@@ -12,13 +12,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { FIXTURES, PACKAGE_ROOT } from './helpers.mjs';
-import { buildGraph, lockfileClosure } from '../scripts/check-graph.mjs';
+import { SURFACES, buildGraph, lockfileClosure } from '../scripts/check-graph.mjs';
 
 const LOCK = lockfileClosure(path.join(PACKAGE_ROOT, 'package-lock.json'));
 const GRAPH = buildGraph(path.join(PACKAGE_ROOT, 'dist', 'main.js'));
+// PR-2b C4: también la superficie vendorizada (ESM), para canarios y para el cruce estático/runtime.
+const VENDOR_GRAPH = buildGraph(path.join(PACKAGE_ROOT, SURFACES.vendor), { surface: 'vendor' });
+const STATIC_FILES = new Set([...GRAPH.nodes.keys(), ...VENDOR_GRAPH.nodes.keys()].map((f) => path.relative(PACKAGE_ROOT, f)));
 // Nombres de canario calculados (no a mano): especificadores literales alcanzables fuera del
 // lockfile (de buildGraph) + supports-color + has-flag + todo el cierre de producción.
-const CANARY_NAMES = [...new Set([...GRAPH.externalSpecs, 'supports-color', 'has-flag', ...LOCK.names])].sort();
+const CANARY_NAMES = [...new Set([...GRAPH.externalSpecs, ...VENDOR_GRAPH.externalSpecs, 'supports-color', 'has-flag', ...LOCK.names])].sort();
 
 const ROOT_TMP = mkdtempSync(path.join(tmpdir(), 'x402-t11d-'));
 process.on('exit', () => rmSync(ROOT_TMP, { recursive: true, force: true }));
@@ -68,6 +71,8 @@ function run({ omit = [], places = ['outer', 'tmp', 'home_nm', 'home_nl'] } = {}
   const copy = path.join(t, 'outer', 'x402-teyolia');
   for (const f of ['dist', 'node_modules', 'package.json', 'package-lock.json']) cpSync(path.join(PACKAGE_ROOT, f), path.join(copy, f), { recursive: true, dereference: true });
   cpSync(path.join(FIXTURES, 't11d', 'probe-entry.mjs'), path.join(copy, 'probe-entry.mjs'));
+  cpSync(path.join(FIXTURES, 't11d', 'resolve-hook.mjs'), path.join(copy, 'resolve-hook.mjs'));
+  cpSync(path.join(PACKAGE_ROOT, SURFACES.vendor), path.join(copy, SURFACES.vendor));
   for (const name of omit) rmSync(path.join(copy, 'node_modules', name), { recursive: true, force: true });
   walkNoSymlinks(copy);
   const home = path.join(t, 'home');
@@ -82,7 +87,8 @@ function run({ omit = [], places = ['outer', 'tmp', 'home_nm', 'home_nl'] } = {}
   const report = line ? JSON.parse(line.slice(5)) : null;
   const realCopy = realpathSync(copy);
   const fired = readdirSync(markers);
-  const outside = report ? report.cache.filter((f) => !(f === realCopy || f.startsWith(realCopy + path.sep))) : null;
+  const loaded = report ? [...report.cache, ...report.esm] : [];
+  const outside = report ? loaded.filter((f) => !(f === realCopy || f.startsWith(realCopy + path.sep))) : null;
   return { r, report, fired, outside, realCopy, home };
 }
 
@@ -92,6 +98,7 @@ const violations = (s) => {
   if (!s.report) v.push('sin reporte de la sonda');
   if (s.fired.length) v.push(`canarios ejecutados: ${s.fired.join(', ')}`);
   if (s.outside?.length) v.push(`módulos fuera de la copia: ${s.outside.join(', ')}`);
+  if (s.report?.surfaceError) v.push(`superficie vendorizada: ${s.report.surfaceError}`);
   return v;
 };
 
@@ -109,6 +116,15 @@ describe('T-11d runtime con padre envenenado (dos ancestros + $HOME)', () => {
     // Fase 2: express solo lo carga server.js tras el guard (main.ts); su presencia prueba que se pasó el guard.
     assert.ok(s.report.cache.includes(path.join(s.realCopy, 'node_modules', 'express', 'lib', 'application.js')));
     assert.equal(s.report.exitCode, 0);
+    // PR-2b C4 (P2-L4): la carga ESM se observa con el hook y queda dentro de la copia.
+    const inEsm = (rel) => s.report.esm.includes(path.join(s.realCopy, rel));
+    for (const rel of ['node_modules/@x402-xec/express/dist/index.js', 'node_modules/@x402-xec/core/dist/sqlite-invoice-store.js', 'node_modules/zod/index.js', 'dist/main.js']) assert.ok(inEsm(rel), `ESM observado: ${rel}`);
+    // P2-L4: los módulos ESM reales (zod, @x402-xec/*) no están en Module._cache; sin el hook no se verían.
+    assert.ok(!s.report.cache.some((f) => f.includes(`${path.sep}node_modules${path.sep}zod${path.sep}`) || f.includes(`${path.sep}@x402-xec${path.sep}`)), 'ESM ausente de Module._cache');
+    // Cruce estático/runtime: todo archivo cargado en runtime está en el grafo estático (main ∪ vendor).
+    const harness = new Set(['probe-entry.mjs', 'resolve-hook.mjs']);
+    const missing = [...new Set([...s.report.cache, ...s.report.esm].map((f) => path.relative(s.realCopy, f)))].filter((r) => !harness.has(r) && !STATIC_FILES.has(r));
+    assert.deepEqual(missing, [], 'cargado en runtime pero ausente del grafo estático');
     // Precondición L1P-L2: carpetas globales = $HOME/.node_modules, $HOME/.node_libraries, <prefix>/lib/node; esta última no existe.
     assert.deepEqual(s.report.globalPaths, [path.join(s.home, '.node_modules'), path.join(s.home, '.node_libraries'), s.report.prefixLibNode]);
     assert.equal(s.report.prefixLibNodeExists, false, '<prefix>/lib/node no debe existir en el runner');
@@ -120,6 +136,14 @@ describe('T-11d runtime con padre envenenado (dos ancestros + $HOME)', () => {
   test('d-n2: copia sin un paquete del lockfile (ms) -> falla', () => {
     const v = violations(run({ omit: ['ms'] }));
     assert.ok(v.some((x) => /ms@outer/.test(x)), JSON.stringify(v));
+  });
+  test('d-n4: copia sin zod (dependencia ESM de @x402-xec/core) -> falla: el hook ESM ve zod resuelto en el ancestro', () => {
+    // El import nombrado { z } falla al enlazar, así que el cuerpo del canario no llega a
+    // ejecutarse (0 marcadores); la fuga se ve por la resolución (hook ESM) y la contención.
+    const s = run({ omit: ['zod'] });
+    const v = violations(s);
+    assert.ok(s.report.esm.some((f) => f.endsWith(path.join('outer', 'node_modules', 'zod', 'index.js'))), JSON.stringify(v));
+    assert.ok(v.some((x) => /módulos fuera de la copia: .*outer\/node_modules\/zod\/index\.js/.test(x)), JSON.stringify(v));
   });
   test('d-n3: solo canario en $HOME/.node_modules, sin O-1 -> falla', () => {
     const v = violations(run({ omit: ['supports-color', 'has-flag'], places: ['home_nm'] }));

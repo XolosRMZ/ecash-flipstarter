@@ -13,11 +13,14 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "node --test --test-reporter=spec test/*.test.mjs",
-    "check:graph": "node scripts/check-graph.mjs dist/main.js",
+    "check:graph": "node scripts/check-graph.mjs dist/main.js && node scripts/check-graph.mjs --surface vendor",
+    "check:vendor": "node scripts/check-vendor.mjs",
     "inventory": "node scripts/inventory.mjs --write",
     "inventory:check": "node scripts/inventory.mjs --check"
   },
   "dependencies": {
+    "@x402-xec/core": "file:vendor/x402-xec-0f409de/x402-xec-core-0.1.0.tgz",
+    "@x402-xec/express": "file:vendor/x402-xec-0f409de/x402-xec-express-0.1.0.tgz",
     "express": "5.2.1",
     "supports-color": "8.1.1"
   },
@@ -25,5 +28,13 @@
     "@types/express": "5.0.6",
     "@types/node": "22.20.5",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "zod": "4.4.3",
+    "ecashaddrjs": "2.0.1",
+    "@scure/bip32": "1.7.0",
+    "@scure/base": "1.2.6",
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
   }
 }

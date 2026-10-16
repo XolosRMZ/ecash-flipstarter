@@ -137,8 +137,56 @@ const INDETERMINATE = [
   ['acceso calculado a .process ([ o ?.[)', /(?<=[\w$)\]]\s*\??\.\s*)process\s*(?:\?\.\s*)?\[/g],
   ['eval/Function (código dinámico que puede obtener el objeto global)', /(?<![\w$])(?<!(?<!\.\.)\.)(?:eval|Function)(?![\w$])/g],
   ['escape \\u en identificador (p. ej. glob\\u0061lThis)', /\\u/g],
-  ["import/require de 'process' o 'node:process'", /(?:from\s*|require\s*\(\s*|import\s*\(\s*)(['"`])(?:node:)?process\1/g],
+  ["import/require de 'process' o 'node:process'", /(?:from\s*|require\s*\(\s*|import\s*\(\s*)(['"`])(?:node:)?process\/?\1/g],
 ];
+
+// P63G-L1 (PR-2b, opción C de #63): tres rutas que llegan a process sin nombrarlo como
+// identificador. Fail-closed; backend/src @ 239f9dc no contiene ninguna, así que la salida no cambia.
+//   (1) constructor de funciones: Function vía `.constructor`, `?.constructor`, `['constructor']`,
+//       desestructuración `{ constructor }` o cualquier string que contenga `constructor`.
+//       Sólo se exime la definición de constructor de clase/método (`constructor(` sin `.` delante).
+//   (2) node:vm y equivalentes: especificadores vm, module, worker_threads, child_process,
+//       inspector, repl, wasi; nombres de las APIs de vm (identificador, propiedad o string) y
+//       ganchos internos de process/Module (mainModule, binding, _linkedBinding, dlopen, _load, _compile).
+//   (3) require/import() con argumento que no sea un literal simple ('x', "x" o `x` sin ${} y sin
+//       escapes \): concatenación, template con ${}, variable, alias de require, require?.(),
+//       module.require / x.require, require.call/apply y createRequire.
+const L1_WORDS = String.raw`runInThisContext|runInNewContext|runInContext|compileFunction|createContext|isContext|SourceTextModule|SyntheticModule|measureMemory|createRequire|mainModule|_linkedBinding|dlopen|_load|_compile|_resolveFilename`;
+const L1_SPECS = String.raw`(?:node:)?(?:vm|module|worker_threads|child_process|inspector(?:\/promises)?|repl|wasi)\/?`;
+const SIMPLE_LITERAL = /^\s*\(\s*(?:'[^'\\\n]*'|"[^"\\\n]*"|`[^`$\\]*`)\s*\)/;
+const L1_RULES = [
+  // (1) constructor
+  ['P63G-L1 constructor por acceso a propiedad (.constructor, ?.constructor)', /(?<=\.\s*)constructor(?![\w$])/g, 'bare'],
+  ['P63G-L1 constructor como identificador fuera de definición (desestructuración, alias)', /(?<![\w$.])constructor(?![\w$])(?!\s*\()/g, 'bare'],
+  ["P63G-L1 string que contiene 'constructor' (p. ej. ['constructor'])", /(?<![\w$])constructor(?![\w$])/g, 'string'],
+  // (2) vm y equivalentes
+  ['P63G-L1 import/require de vm, module, worker_threads, child_process, inspector, repl o wasi', new RegExp(String.raw`(?:from\s*|require\s*\(\s*|import\s*\(\s*|import\s*)(['"\`])${L1_SPECS}\1`, 'g'), 'code'],
+  ['P63G-L1 API de vm o gancho interno de process/Module', new RegExp(String.raw`(?<![\w$])(?:${L1_WORDS}|binding)(?![\w$])`, 'g'), 'bare-binding'],
+  ['P63G-L1 string con nombre de API de vm o gancho interno', new RegExp(String.raw`(?<![\w$])(?:${L1_WORDS})(?![\w$])`, 'g'), 'string'],
+  // (3) require/import dinámicos
+  ['P63G-L1 .require (module.require, mainModule.require, x?.require)', /(?<=\.\s*)require(?![\w$])/g, 'bare'],
+  ['P63G-L1 require sin argumento literal simple (concatenación, template ${}, variable, alias, ?.(), .call)', /(?<![\w$.])require(?![\w$])/g, 'call'],
+  ['P63G-L1 import() sin argumento literal simple', /(?<![\w$.])import(?=\s*\()/g, 'call'],
+];
+
+function findL1(code, bare, id) {
+  const hits = [];
+  const inString = (i) => bare[i] !== code[i];
+  for (const [label, re, mode] of L1_RULES) {
+    const text = mode === 'code' ? code : bare;
+    if (mode === 'string') {
+      for (const m of code.matchAll(re)) if (inString(m.index)) hits.push(`INDETERMINADO | ${id}:${lineOf(code, m.index)} | ${label}`);
+      continue;
+    }
+    for (const m of text.matchAll(re)) {
+      if (mode === 'call' && SIMPLE_LITERAL.test(code.slice(m.index + m[0].length, m.index + m[0].length + 512))) continue;
+      // `binding` sólo como propiedad (process.binding, x?.binding); como identificador libre es legítimo.
+      if (mode === 'bare-binding' && m[0] === 'binding' && !/\.\s*$/.test(text.slice(Math.max(0, m.index - 8), m.index))) continue;
+      hits.push(`INDETERMINADO | ${id}:${lineOf(text, m.index)} | ${label}`);
+    }
+  }
+  return hits;
+}
 // Cabeza `process.env` que la extracción reconoce: punto u optional chaining, con espacios o
 // comentarios (ya vaciados) entre process, el punto y env (P1 #63, hallazgo 1). La forma con
 // corchetes process['env'] / process["env"] no se extrae: sigue fallando cerrado por la regla 1.
@@ -191,6 +239,7 @@ export function findIndeterminate(code, id) {
       hits.push(`INDETERMINADO | ${id}:${lineOf(text, m.index)} | ${label}`);
     }
   }
+  hits.push(...findL1(code, bare, id));
   return hits;
 }
 

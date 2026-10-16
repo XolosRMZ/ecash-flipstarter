@@ -246,3 +246,115 @@ describe('P1 #63: objeto global (globalThis/global/self/window) y rutas equivale
     assert.match(text, /^ENV B_NAME \|/m);
   });
 });
+
+// P63G-L1 (PR-2b; opción C de #63, 2026-10-16): rutas a process sin nombrarlo como identificador.
+// Cada caso `rechaza` pasa inadvertido en 505cf61 (control negativo en la evidencia).
+describe('P63G-L1: constructor de funciones, node:vm y require/import dinámicos', () => {
+  const root = _mkd(path.join(_tmp(), 'x402-l1-'));
+  process.on('exit', () => _rm(root, { recursive: true, force: true }));
+  let k = 0;
+  const gen = async (code) => {
+    const dir = path.join(root, `c${++k}`);
+    _mk(dir, { recursive: true });
+    _wf(path.join(dir, 'm.ts'), code);
+    return generateInventory(dir);
+  };
+  const R = "('return process')().env.SECRET_A";
+  const rejected = {
+    '(1) constructor': [
+      ['({}).constructor.constructor(…)', `export const a = ({} as any).constructor.constructor${R};\n`],
+      ['(()=>{}).constructor(…)', `export const a = ((() => {}) as any).constructor${R};\n`],
+      ['(async()=>{}).constructor', `export const a = ((async () => {}) as any).constructor${R};\n`],
+      ['function(){}.constructor', `export const a = (function () {} as any).constructor${R};\n`],
+      ['?.constructor', `export const a = ((() => {}) as any)?.constructor${R};\n`],
+      ['?.constructor?.constructor', `export const a = ({} as any)?.constructor?.constructor${R};\n`],
+      ['. constructor con espacios/salto', `export const a = ((() => {}) as any)\n  .  constructor${R};\n`],
+      ['/*c*/ . /*c*/ constructor', `export const a = ((() => {}) as any) /* c */ . /* c */ constructor${R};\n`],
+      ["['constructor']", `export const a = ((() => {}) as any)['constructor']${R};\n`],
+      ['?.["constructor"]', `export const a = ((() => {}) as any)?.["constructor"]${R};\n`],
+      ['[`constructor`]', `export const a = ((() => {}) as any)[\`constructor\`]${R};\n`],
+      ["Reflect.get(f, 'constructor')", `export const a = (Reflect.get(() => {}, 'constructor') as any)${R};\n`],
+      ['{ constructor: F } = …', `const { constructor: F } = (() => {}) as any;\nexport const a = F${R};\n`],
+      ['{ constructor } = …', `const { constructor } = (() => {}) as any;\nexport const a = constructor${R};\n`],
+      ['this.constructor.constructor', `export class C { m() { return (this as any).constructor.constructor${R}; } }\n`],
+    ],
+    '(2) vm y equivalentes': [
+      ["import vm from 'node:vm'", "import vm from 'node:vm';\nexport const a = vm.runInThisContext('process').env.SECRET_A;\n"],
+      ["import * as vm from 'vm'", "import * as vm from 'vm';\nexport const a = vm.runInNewContext('1');\n"],
+      ["import { Script } from 'node:vm'", "import { Script } from 'node:vm';\nexport const a = new Script('process').runInThisContext().env.SECRET_A;\n"],
+      ["import 'node:vm' (efecto)", "import 'node:vm';\n"],
+      ["export * from 'vm'", "export * from 'vm';\n"],
+      ["require('vm')", "export const a = require('vm').runInThisContext('process').env.SECRET_A;\n"],
+      ["require(\"node:vm\")", 'export const a = require("node:vm");\n'],
+      ["await import('node:vm')", "export async function f() { return (await import('node:vm')).compileFunction('return process')().env.SECRET_A; }\n"],
+      ['import(`vm`)', 'export const a = import(`vm`);\n'],
+      ["require('node:module')", "export const a = require('node:module');\n"],
+      ["import('worker_threads')", "export const a = import('worker_threads');\n"],
+      ["require('child_process')", "export const a = require('child_process');\n"],
+      ["import('node:inspector')", "export const a = import('node:inspector');\n"],
+      ["require('repl')", "export const a = require('repl');\n"],
+      ['x.runInThisContext (sin import visible)', 'declare const x: any;\nexport const a = x.runInThisContext(\'process\').env.SECRET_A;\n'],
+      ['x?.runInNewContext', 'declare const x: any;\nexport const a = x?.runInNewContext(\'this\');\n'],
+      ['x.runInContext / createContext', 'declare const x: any;\nexport const a = x.runInContext(\'p\', x.createContext());\n'],
+      ['x.compileFunction', 'declare const x: any;\nexport const a = x.compileFunction(\'return process\')();\n'],
+      ["x['runInThisContext']", "declare const x: any;\nexport const a = x['runInThisContext']('process');\n"],
+      ['x.SourceTextModule', 'declare const x: any;\nexport const a = new x.SourceTextModule(\'\');\n'],
+      ['process.mainModule.require', "export const a = (process as any).mainModule.require('x');\n"],
+      ['process.binding', "export const a = (process as any).binding('spawn_sync');\n"],
+      ['Module._load', "declare const M: any;\nexport const a = M._load('process');\n"],
+    ],
+    '(3) require/import dinámicos': [
+      ["module.require('pro'+'cess')", "declare const module: any;\nexport const a = module.require('pro' + 'cess').env.SECRET_A;\n"],
+      ["require('node:'+'process')", "export const a = require('node:' + 'process').env.SECRET_A;\n"],
+      ["require('pro' + 'cess')", "export const a = require('pro' + 'cess').env.SECRET_A;\n"],
+      ['require(`node:${n}`)', "const n = 'process';\nexport const a = require(`node:${n}`).env.SECRET_A;\n"],
+      ['require(variable)', "const n = 'process';\nexport const a = require(n).env.SECRET_A;\n"],
+      ["require('\\x70rocess') (escape)", "export const a = require('\\x70rocess').env.SECRET_A;\n"],
+      ["require(('process'))", "export const a = require(('process')).env.SECRET_A;\n"],
+      ["require(/*c*/ n)", "const n = 'process';\nexport const a = require(/* c */ n).env.SECRET_A;\n"],
+      ['require?.(n)', "const n = 'process';\nexport const a = require?.(n).env.SECRET_A;\n"],
+      ['require.call(null, n)', "const n = 'process';\nexport const a = require.call(null, n).env.SECRET_A;\n"],
+      ['alias const r = require', "const r = require;\nexport const a = r('pro' + 'cess').env.SECRET_A;\n"],
+      ["(0, require)('x')", "export const a = (0, require)('x');\n"],
+      ["require['call']", "export const a = (require as any)['call'](null, 'x');\n"],
+      ['x.require(n)', "declare const x: any; const n = 'process';\nexport const a = x.require(n).env.SECRET_A;\n"],
+      ['x?.require', "declare const x: any;\nexport const a = x?.require('process');\n"],
+      ["createRequire(import.meta.url)('pro'+'cess')", "declare const createRequire: any;\nexport const a = createRequire('/')('pro' + 'cess').env.SECRET_A;\n"],
+      ["import { createRequire } from 'module'", "import { createRequire } from 'module';\nexport const a = createRequire('/');\n"],
+      ["import('node:' + 'process')", "export const a = import('node:' + 'process');\n"],
+      ['import(`node:${n}`)', "const n = 'process';\nexport const a = import(`node:${n}`);\n"],
+      ['import(n)', "const n = 'process';\nexport const a = import(n);\n"],
+      ['import /*c*/ (n)', "const n = 'process';\nexport const a = import /* c */ (n);\n"],
+    ],
+  };
+  for (const [group, cases] of Object.entries(rejected)) {
+    for (const [label, code] of cases) {
+      test(`rechaza ${group}: ${label}`, async () => {
+        await assert.rejects(gen(code), /PR1-L3: .*INDETERMINADO \| m:\d+/s);
+      });
+    }
+  }
+  test('etiqueta específica de P63G-L1 para cada forma', async () => {
+    await assert.rejects(gen(`export const a = ({} as any).constructor.constructor${R};\n`), /\| P63G-L1 constructor por acceso a propiedad/);
+    await assert.rejects(gen("export const a = require('node:vm');\n"), /\| P63G-L1 import\/require de vm/);
+    await assert.rejects(gen("export const a = require('node:' + 'process');\n"), /\| P63G-L1 require sin argumento literal simple/);
+  });
+  const accepted = [
+    ['(1) constructor de clase y parámetros', "export class S { constructor(private readonly ttl = 1) {} }\nexport class T { constructor() { this.x = 1; } x: number; }\n"],
+    ['(1) constructor como método de objeto literal', 'export const o = { constructor() { return 1; } };\n'],
+    ['(1) constructorArgs (propiedad, tipo, string y columna SQL)', "declare const c: { constructorArgs?: Record<string, string> };\ntype K = { constructorArgs: string }['constructorArgs'];\nexport const v = c.constructorArgs?.['k'];\nexport const sql = 'constructorArgs TEXT';\nexport function serializeConstructorArgs() { return 1; }\n"],
+    ['(2) Script/compile de otras librerías e identificadores parecidos', "import { Script as EcashScript } from 'ecash-lib';\ndeclare function compileCampaignScript(x: unknown): unknown;\nexport const s = EcashScript;\nexport const t = compileCampaignScript(1);\nexport const binding = 1;\nexport const vmName = 'vm';\nexport const msg = 'run in this context';\n"],
+    ['(2) módulos de nombre parecido', "import fs from 'fs';\nimport os from 'node:os';\nimport x from 'vm2-lite';\nimport y from './module';\nimport z from './vm';\nexport { fs, os, x, y, z };\n"],
+    ['(3) require/import() con literal simple', "const app = require('./app').default as typeof import('./app').default;\nconst { a } = require(\"./config/ecash\");\nexport async function f() { return (await import('./PledgeReconciliationService')).x; }\nexport const t = import(`./literal`);\nexport { app, a };\n"],
+    ['(3) palabras require/import en strings y propiedades no-require', "export const m = 'require(x) and import(y)';\ndeclare const o: any;\nexport const r = o.required + o.requirement;\nexport const b = process.env.B_NAME;\n"],
+  ];
+  for (const [label, code] of accepted) {
+    test(`no rechaza ${label}`, async () => {
+      const text = await gen(code);
+      assert.match(text, /^MODULO m \|/m);
+    });
+  }
+  test('backend/src @ 239f9dc sigue sin indeterminados: el inventario archivado no cambia', async () => {
+    assert.equal(await generateInventory(), archived);
+  });
+});

@@ -1,7 +1,8 @@
 {
-  "_doc": "T-11a (PR-2 commit 1; Auditor L1P-L3 y PR1-L5): sitios revisados en paquetes del cierre de producción que no se pueden resolver estáticamente. Cada entrada debe coincidir en paquete, versión, archivo, línea, tipo, especificador y SHA-256 del archivo (n7) y aparecer en el grafo (n8). Cualquier otro require opcional, no literal u opaco hace fallar T-11a. Ampliar esta lista exige dictamen del Auditor.",
+  "_doc": "T-11a (PR-2 C1; PR-2b C4): sitios revisados en paquetes que no se resuelven estáticamente o que generan código desde strings. Cada entrada pertenece a una superficie (main = dist/main.js; vendor = scripts/vendor-surface.mjs) y debe coincidir en paquete, versión, archivo, línea, tipo, especificador, SHA-256 del archivo y, para codegen por alias, en alias + constructLine (n7); y debe aparecer en el grafo de su superficie (n8). Cualquier otro sitio hace fallar T-11a. Ampliar esta lista exige dictamen del Auditor.",
   "entries": [
     {
+      "surface": "main",
       "package": "express",
       "version": "5.2.1",
       "file": "lib/view.js",
@@ -10,6 +11,78 @@
       "spec": "mod",
       "sha256": "74f4171b66263e22481820bc5975708f7dd8a61484f570aac7c5b4ab77ecbd79",
       "justification": "Carga de motores de plantillas en View#render (res.render / app.render). x402-teyolia no configura 'view engine' ni llama render; T-11b/T-11d y --permission (PR-6) cubren el runtime."
+    },
+    {
+      "surface": "main",
+      "package": "depd",
+      "version": "2.0.0",
+      "file": "index.js",
+      "line": 425,
+      "kind": "codegen",
+      "spec": "new Function",
+      "sha256": "4d587a5662e20a7bb9bfe6555afe5987e1b80303a819b447394f37a93297ee91",
+      "justification": "wrapfunction(): envoltorio de deprecación con la aridad de fn; los argumentos son `arg0…argN` generados por createArgumentsString (números) y el cuerpo es fijo. No entra texto externo. Solo se ejecuta si un paquete llama deprecate.function()."
+    },
+    {
+      "surface": "main",
+      "package": "get-intrinsic",
+      "version": "1.3.0",
+      "file": "index.js",
+      "line": 23,
+      "kind": "codegen",
+      "spec": "= Function",
+      "alias": "$Function",
+      "constructLine": 28,
+      "sha256": "c3bc7278af37cede0da2db32724fa0b89a07c44205c44c4f5db0e4d8d497d49c",
+      "justification": "Alias $Function; getEvalledConstructor() (l.28) construye solo con tres literales fijos (async function, function*, async function*) para obtener constructores intrínsecos. Riesgo residual: la tabla expone %Function% (l.97) y %eval% (l.91) vía GetIntrinsic; ningún paquete del cierre los pide (grep en la revisión C4)."
+    },
+    {
+      "surface": "main",
+      "package": "get-intrinsic",
+      "version": "1.3.0",
+      "file": "index.js",
+      "line": 91,
+      "kind": "codegen",
+      "spec": ": eval",
+      "sha256": "c3bc7278af37cede0da2db32724fa0b89a07c44205c44c4f5db0e4d8d497d49c",
+      "justification": "Referencia a eval como valor de la tabla de intrínsecos (%eval%); no se invoca en el paquete. Ver la entrada de l.23."
+    },
+    {
+      "surface": "main",
+      "package": "function-bind",
+      "version": "1.1.2",
+      "file": "implementation.js",
+      "line": 74,
+      "kind": "codegen",
+      "spec": "Function",
+      "sha256": "5c52eb40601e0716dafff9759cf28d8d4af3e2fc2e2c96384f43dbfd0f7370b5",
+      "justification": "Polyfill de Function.prototype.bind con parámetros `$0…$n` (aridad) y cuerpo fijo. En Node no se ejecuta: index.js exporta Function.prototype.bind || implementation."
+    },
+    {
+      "surface": "vendor",
+      "package": "zod",
+      "version": "4.4.3",
+      "file": "v4/core/doc.js",
+      "line": 28,
+      "kind": "codegen",
+      "spec": "= Function",
+      "alias": "F",
+      "constructLine": 33,
+      "sha256": "e084bbcc536746a8942fd33b08afe4db345554b3a0383114f1dca95261c958d9",
+      "justification": "Doc.compile(): JIT del parser de objetos (schemas.js, si jit && allowsEval); el cuerpo sale de la forma del esquema, no de la entrada. Dictamen PR-2 (a): excepción revisada en PR-2 para doc.js:33 (construcción `new F(…)`, constructLine); jitless + test de 0 construcciones en PR-4."
+    },
+    {
+      "surface": "vendor",
+      "package": "zod",
+      "version": "4.4.3",
+      "file": "v4/core/util.js",
+      "line": 156,
+      "kind": "codegen",
+      "spec": "= Function",
+      "alias": "F",
+      "constructLine": 157,
+      "sha256": "968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3",
+      "justification": "Sonda allowsEval: `new F(\"\")` (l.157) para saber si el entorno permite eval; se omite bajo jitless. Dictamen PR-2 (a): excepción revisada para util.js:157 (constructLine)."
     }
   ]
 }

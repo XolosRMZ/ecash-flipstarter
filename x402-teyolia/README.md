@@ -66,3 +66,13 @@ Rutas del proceso (solo `127.0.0.1`, puerto `TEYOLIA_X402_LISTEN`, distinto de 3
 * `debug` (dependencia de Express) intenta un `require('supports-color')` opcional que no está
   instalado: `check-graph` lo reporta como aviso. Si un `node_modules` superior lo tuviera, se
   cargaría y `check-graph` fallaría.
+
+## Corridas locales: host sin `/node_modules` (P2a-L3)
+
+T-11d verifica la precondición P2-L8: ningún `node_modules` fuera del paquete (en `/`, en los
+ancestros del checkout, en `$HOME/.node_modules` ni en `$HOME/.node_libraries`) puede resolver
+dependencias del proceso. En un host con `/node_modules` (o con esos directorios) T-11d **falla a
+propósito**. Para correr las pruebas en local, usa un host limpio o un sandbox `bwrap` que monte
+solo `/usr`, `/etc`, la cadena de herramientas de Node verificada por SHA-256 y el checkout, con
+`/tmp` y `HOME` vacíos (`--tmpfs /tmp --clearenv --setenv HOME /tmp/home`). El CI (`x402-ta2`)
+corre en un runner sin `/node_modules`.
