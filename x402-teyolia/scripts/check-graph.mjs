@@ -100,6 +100,21 @@ function findPackageDir(name, fromFile) {
  * `exports`. Sin NODE_PATH ni carpetas globales (ESM no las usa). Devuelve null si no resuelve.
  * Los especificadores `#…` (campo `imports`) no se admiten: quien los use falla cerrado.
  */
+/** PATTERN_KEY_COMPARE de Node (resolve.js, patternKeyCompare): -1 si `a` va antes que `b`. */
+export function patternKeyCompare(a, b) {
+  const ai = a.indexOf('*');
+  const bi = b.indexOf('*');
+  const baseA = ai === -1 ? a.length : ai + 1;
+  const baseB = bi === -1 ? b.length : bi + 1;
+  if (baseA > baseB) return -1;
+  if (baseB > baseA) return 1;
+  if (ai === -1) return 1;
+  if (bi === -1) return -1;
+  if (a.length > b.length) return -1;
+  if (b.length > a.length) return 1;
+  return 0;
+}
+
 export function resolveEsm(spec, fromFile, conditions = ESM_CONDITIONS) {
   if (spec.startsWith('#')) return null;
   const name = packageNameOf(spec);
@@ -118,17 +133,25 @@ export function resolveEsm(spec, fromFile, conditions = ESM_CONDITIONS) {
     let map = pj.exports;
     if (typeof map === 'string' || Array.isArray(map) || !Object.keys(map).some((k) => k.startsWith('.'))) map = { '.': map };
     let t = null;
-    if (Object.hasOwn(map, subpath)) t = pick(map[subpath], null);
+    // Codex #64 r4295643556: misma elección que packageExportsResolve de Node 22.13.1
+    // (lib/internal/modules/esm/resolve.js): coincidencia exacta solo si la clave no tiene `*` y el
+    // subpath tampoco; si no, entre claves con un solo `*` cuyo prefijo y sufijo coinciden y con
+    // subpath.length >= key.length, gana la menor según patternKeyCompare.
+    if (Object.hasOwn(map, subpath) && !subpath.includes('*')) t = pick(map[subpath], null);
     else {
-      let best = null;
+      let bestKey = '';
+      let bestStar = null;
       for (const k of Object.keys(map)) {
         const i = k.indexOf('*');
-        if (i < 0) continue;
+        if (i === -1 || k.lastIndexOf('*') !== i) continue;
         const pre = k.slice(0, i);
         const post = k.slice(i + 1);
-        if (subpath.startsWith(pre) && subpath.endsWith(post) && subpath.length >= pre.length + post.length && (!best || pre.length > best.pre.length)) best = { k, pre, star: subpath.slice(pre.length, subpath.length - post.length) };
+        if (subpath.startsWith(pre) && subpath.length >= k.length && subpath.endsWith(post) && patternKeyCompare(bestKey, k) === 1) {
+          bestKey = k;
+          bestStar = subpath.slice(pre.length, subpath.length - post.length);
+        }
       }
-      if (best) t = pick(map[best.k], best.star);
+      if (bestKey) t = pick(map[bestKey], bestStar);
     }
     if (!t) return null;
     const f = path.join(pkgDir, t);
