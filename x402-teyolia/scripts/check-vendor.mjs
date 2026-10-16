@@ -8,7 +8,8 @@
 //   V4 cierre transitivo: versión e integrity = pnpm-lock.yaml de 0f409de (PROVENANCE.transitive).
 //   V5 zod único (P2-L7): exactamente una entrada zod en el lock, 4.4.3, integrity del pnpm-lock.
 //   V6 instalado (si hay node_modules): un solo directorio zod; @x402-xec/* y su cierre son
-//      directorios reales (sin symlinks) con la versión del lock.
+//      directorios reales (sin symlinks) con la versión del lock, y el conjunto instalado es exactamente
+//      el del lock: falta cualquier paquete esperado -> falla (Codex #64 r4295643565).
 // Uso: node scripts/check-vendor.mjs
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
@@ -102,7 +103,17 @@ export function checkVendor(opts = {}) {
     const nm = path.join(root, 'node_modules');
     const zodDirs = findInstalled(nm, 'zod');
     if (zodDirs.length !== 1) P(`V6: zod instalado ${zodDirs.length} veces: ${zodDirs.map((d) => path.relative(root, d)).join(', ')}`);
-    for (const name of [...Object.keys(tarIntegrity), ...Object.keys(prov.transitive)]) {
+    // Codex #64 r4295643565: conjunto exacto. Cada entrada del lock de @x402-xec/* y de su cierre
+    // (no dev) debe existir en su ruta derivada del lockfile antes de validar versión o symlink.
+    // Faltar cualquiera, o que falte node_modules con checkInstalled forzado, falla. Lo instalado de más ya fallaba (sin entrada en el lock).
+    if (!existsSync(nm)) P('V6: falta node_modules');
+    const expectedNames = new Set([...Object.keys(tarIntegrity), ...Object.keys(prov.transitive)]);
+    for (const [k, meta] of entries) {
+      if (!k || meta.dev || !expectedNames.has(nameOfKey(k))) continue;
+      const dir = path.join(root, ...k.split('/'));
+      if (!existsSync(path.join(dir, 'package.json'))) P(`V6: ${k} (${meta.version}) del lockfile no está instalado`);
+    }
+    for (const name of expectedNames) {
       for (const dir of findInstalled(nm, name)) {
         const rel = path.relative(root, dir);
         if (lstatSync(dir).isSymbolicLink()) { P(`V6: ${rel} es un symlink`); continue; }

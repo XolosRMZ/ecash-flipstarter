@@ -89,4 +89,42 @@ describe('D-01 instalación: tarballs vendorizados de x402-XEC 0f409de', () => {
     expect(p, /V6: zod instalado 2 veces/);
     expect(p, /V6: node_modules\/@noble\/hashes es un symlink/);
   });
+  // Codex #64 r4295643565 (P2): V6 exige el conjunto exacto instalado, no un subconjunto.
+  const v6Root = (tag) => {
+    const root = path.join(TMP, tag);
+    mkdirSync(root, { recursive: true });
+    for (const f of ['package.json', 'package-lock.json', 'vendor']) cpSync(path.join(PACKAGE_ROOT, f), path.join(root, f), { recursive: true });
+    cpSync(path.join(PACKAGE_ROOT, 'node_modules'), path.join(root, 'node_modules'), { recursive: true });
+    return root;
+  };
+  for (const [label, rel, re] of [
+    ['falta @noble/hashes (cierre transitivo)', '@noble/hashes', /V6: node_modules\/@noble\/hashes \(.*\) del lockfile no está instalado/],
+    ['falta @x402-xec/express (tarball vendorizado)', '@x402-xec/express', /V6: node_modules\/@x402-xec\/express \(0\.1\.0\) del lockfile no está instalado/],
+    ['falta zod (único)', 'zod', /V6: node_modules\/zod \(4\.4\.3\) del lockfile no está instalado/],
+    ['falta ecashaddrjs', 'ecashaddrjs', /V6: node_modules\/ecashaddrjs \(.*\) del lockfile no está instalado/],
+  ]) {
+    test(`V6 negativo (conjunto exacto): ${label} -> falla`, () => {
+      const root = v6Root(`v6x-${rel.replace(/\W/g, '_')}`);
+      rmSync(path.join(root, 'node_modules', ...rel.split('/')), { recursive: true });
+      expect(checkVendor({ packageRoot: root, checkInstalled: true }), re);
+    });
+  }
+  test('V6 negativo: paquete movido a otra ruta (presente, pero no donde dice el lock) -> falla', () => {
+    const root = v6Root('v6x-moved');
+    const nm = path.join(root, 'node_modules');
+    cpSync(path.join(nm, '@noble', 'hashes'), path.join(nm, '@x402-xec', 'core', 'node_modules', '@noble', 'hashes'), { recursive: true });
+    rmSync(path.join(nm, '@noble', 'hashes'), { recursive: true });
+    const p = checkVendor({ packageRoot: root, checkInstalled: true });
+    expect(p, /V6: node_modules\/@noble\/hashes \(.*\) del lockfile no está instalado/);
+    expect(p, /V6: node_modules\/@x402-xec\/core\/node_modules\/@noble\/hashes instalado .*; lock \(sin entrada\)/);
+  });
+  test('V6 negativo: checkInstalled forzado sin node_modules -> falla', () => {
+    const root = path.join(TMP, 'v6x-nonm');
+    mkdirSync(root, { recursive: true });
+    for (const f of ['package.json', 'package-lock.json', 'vendor']) cpSync(path.join(PACKAGE_ROOT, f), path.join(root, f), { recursive: true });
+    expect(checkVendor({ packageRoot: root, checkInstalled: true }), /V6: falta node_modules/);
+  });
+  test('V6 positivo: copia completa del árbol real -> OK (sin falsos positivos)', () => {
+    assert.deepEqual(checkVendor({ packageRoot: v6Root('v6x-ok'), checkInstalled: true }), []);
+  });
 });
