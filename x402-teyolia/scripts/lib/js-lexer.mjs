@@ -9,7 +9,10 @@ function blank(text) {
   return text.replace(/[^\n]/g, ' ');
 }
 
-export function stripComments(source) {
+// opts.blankStrings (PR-2 commit 2, PR1-L3): además vacía el contenido de strings, templates
+// y regex (conserva delimitadores y saltos de línea). Por defecto no cambia el comportamiento.
+export function stripComments(source, opts = {}) {
+  const keep = (lit, head, tail) => (opts.blankStrings ? lit.slice(0, head) + blank(lit.slice(head, lit.length - tail)) + lit.slice(lit.length - tail) : lit);
   let out = '';
   let i = 0;
   const n = source.length;
@@ -41,7 +44,7 @@ export function stripComments(source) {
         if (source[j] === '\\') j++;
         j++;
       }
-      out += source.slice(i, j + 1);
+      { const lit = source.slice(i, j + 1); out += keep(lit, 1, lit.length > 1 && lit.endsWith(ch) ? 1 : 0); }
       i = j + 1;
       lastSignificant = ch;
       lastWord = '';
@@ -57,7 +60,7 @@ export function stripComments(source) {
         if (source[j] === '$' && source[j + 1] === '{') { j += 2; templateDepth.push(0); closedExpr = true; break; }
         j++;
       }
-      out += source.slice(i, j);
+      { const lit = source.slice(i, j); out += keep(lit, 1, closedExpr ? 2 : (lit.length > 1 && lit.endsWith('`') ? 1 : 0)); }
       i = j;
       lastSignificant = closedExpr ? '{' : '`';
       lastWord = '';
@@ -81,7 +84,7 @@ export function stripComments(source) {
         }
         j++;
         while (j < n && /[a-z]/i.test(source[j])) j++;
-        out += source.slice(i, j);
+        out += keep(source.slice(i, j), 1, 0);
         i = j;
         lastSignificant = ')';
         lastWord = '';

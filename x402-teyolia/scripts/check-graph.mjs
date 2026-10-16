@@ -12,6 +12,7 @@
 //          transitivo) aparece en el grafo, ni por ruta real ni como copia (sufijo de ruta).
 // Uso: node scripts/check-graph.mjs [dist/main.js] [--json]
 
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire, isBuiltin } from 'node:module';
 import path from 'node:path';
@@ -23,6 +24,17 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const BLOCKLIST = JSON.parse(readFileSync(path.join(HERE, 't11-blocklist.json'), 'utf8'));
 const LEGACY_SRC = path.join(REPO_ROOT, 'backend', 'src');
 const RESOLVE_EXT = ['.js', '.mjs', '.cjs', '.json', '.ts', '.mts', '.cts'];
+// PR-2 commit 1 (L1P-L3, PR1-L5): lista revisada de excepciones de paquetes. Cada entrada
+// lleva paquete, versión, archivo:línea, especificador, SHA-256 del archivo y justificación.
+// Una entrada que ya no coincide (n7) o que no aparece en el grafo (n8) hace fallar T-11a.
+export const EXCEPTIONS_FILE = path.join(HERE, 't11-optional-absent.json');
+export function loadExceptions(file = EXCEPTIONS_FILE) {
+  return JSON.parse(readFileSync(file, 'utf8')).entries ?? [];
+}
+// Cargadores opacos dentro de paquetes (recomendación del Auditor sobre PR1-L5).
+// P2-L3 (n3c): createRequire también precedido de punto (module.createRequire, Module.createRequire)
+// y el cargador interno _load (Module._load, require('module')._load).
+const PACKAGE_OPAQUE = [/(?<![\w$])module\.require\s*\(/g, /(?<![\w$])createRequire\s*\(/g, /\._load\s*\(/g, /process\.mainModule/g];
 
 function toPosix(p) {
   return p.split(path.sep).join('/');
@@ -87,16 +99,29 @@ function scanOwnFile(code) {
   return { edges, problems };
 }
 
+function lineAt(code, index) {
+  let n = 1;
+  for (let i = 0; i < index; i++) if (code.charCodeAt(i) === 10) n++;
+  return n;
+}
+
 function scanPackageFile(code) {
   const edges = [];
   const warnings = [];
+  const sites = [];
   for (const m of code.matchAll(/(?<![\w$.])require\s*\(\s*([^)]*)\)/g)) {
     const lit = /^\s*(['"])([^'"\n]+)\1\s*$/.exec(m[1]);
-    if (lit) edges.push({ spec: lit[2], dynamic: false });
-    else warnings.push('require no literal');
+    if (lit) edges.push({ spec: lit[2], dynamic: false, line: lineAt(code, m.index) });
+    else {
+      warnings.push('require no literal');
+      sites.push({ kind: 'require-no-literal', line: lineAt(code, m.index), spec: m[1].trim() });
+    }
   }
-  for (const m of code.matchAll(/(?:^|[;\n}])\s*import\s+(?:[\w$*{}\s,]+?\s+from\s+)?(['"])([^'"\n]+)\1/g)) edges.push({ spec: m[2], dynamic: false });
-  return { edges, warnings };
+  for (const re of PACKAGE_OPAQUE) {
+    for (const m of code.matchAll(re)) sites.push({ kind: 'opaque', line: lineAt(code, m.index), spec: m[0].replace(/\s*\($/, '') });
+  }
+  for (const m of code.matchAll(/(?:^|[;\n}])\s*import\s+(?:[\w$*{}\s,]+?\s+from\s+)?(['"])([^'"\n]+)\1/g)) edges.push({ spec: m[2], dynamic: false, line: lineAt(code, m.index) });
+  return { edges, warnings, sites };
 }
 
 /**
@@ -105,14 +130,49 @@ function scanPackageFile(code) {
  * opts.lock: resultado de lockfileClosure() (por defecto el lockfile propio).
  */
 export function buildGraph(entry, opts = {}) {
-  const ownRoot = path.resolve(opts.ownRoot ?? PACKAGE_ROOT);
+  // L1P-L3: realpath en la entrada, en la raíz propia y en la raíz de contención.
+  const realOrSelf = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const ownRoot = realOrSelf(opts.ownRoot ?? PACKAGE_ROOT);
+  const containRoot = realOrSelf(opts.containRoot ?? PACKAGE_ROOT);
   const lock = opts.lock ?? lockfileClosure(path.join(PACKAGE_ROOT, 'package-lock.json'));
+  const exceptions = opts.exceptions ?? loadExceptions();
+  const usedExceptions = new Set();
+  const externalSpecs = new Set();
   const nodes = new Map();
   const problems = [];
-  const entryAbs = path.resolve(entry);
+  const entryAbs = realOrSelf(entry);
   const queue = [{ file: entryAbs, phase1: true, from: null }];
 
   const addProblem = (msg) => { if (!problems.includes(msg)) problems.push(msg); };
+  const pkgInfo = (node) => {
+    if (node.pkgInfo) return node.pkgInfo;
+    const segs = node.file.split(path.sep);
+    const idx = segs.lastIndexOf('node_modules');
+    const n = segs[idx + 1]?.startsWith('@') ? 2 : 1;
+    const pkgDir = segs.slice(0, idx + 1 + n).join(path.sep);
+    let version = null;
+    try { version = JSON.parse(readFileSync(path.join(pkgDir, 'package.json'), 'utf8')).version; } catch { /* falla abajo */ }
+    node.pkgInfo = { pkgDir, version, rel: toPosix(path.relative(pkgDir, node.file)) };
+    return node.pkgInfo;
+  };
+  // Sitio en un paquete que solo se admite si está en la lista revisada (n7: debe coincidir).
+  const checkSite = (node, site) => {
+    const info = pkgInfo(node);
+    const where = `${node.pkg}@${info.version}:${info.rel}:${site.line}`;
+    const idx = exceptions.findIndex((e) => e.package === node.pkg && e.file === info.rel && e.line === site.line && e.kind === site.kind && e.spec === site.spec);
+    if (idx < 0) {
+      addProblem(`T-11a: ${site.kind} no revisado en ${where} (${site.spec})`);
+      return false;
+    }
+    const e = exceptions[idx];
+    usedExceptions.add(idx);
+    const sha = createHash('sha256').update(readFileSync(node.file)).digest('hex');
+    if (e.version !== info.version || e.sha256 !== sha) {
+      addProblem(`T-11a: excepción que ya no coincide (versión o SHA-256) en ${where}`);
+      return false;
+    }
+    return true;
+  };
 
   while (queue.length > 0) {
     const { file, phase1 } = queue.shift();
@@ -130,6 +190,8 @@ export function buildGraph(entry, opts = {}) {
     const legacy = isInside(file, LEGACY_SRC);
     const node = { file, kind: own ? 'own' : inNodeModules ? 'package' : 'outside', phase1, edges: [], builtins: new Set(), warnings: [] };
     nodes.set(file, node);
+    // Regla de contención (se suma a la clave del lockfile y a la versión, no las sustituye).
+    if (!isInside(file, containRoot)) addProblem(`T-11a: resuelto fuera del paquete: ${toPosix(path.relative(REPO_ROOT, file))}`);
 
     if (node.kind === 'outside') {
       addProblem(`T-11a: módulo fuera del paquete x402: ${toPosix(path.relative(REPO_ROOT, file))}${legacy ? ' (backend legacy)' : ''}`);
@@ -166,7 +228,10 @@ export function buildGraph(entry, opts = {}) {
     node.raw = readFileSync(file, 'utf8');
     const scan = node.kind === 'own' ? scanOwnFile(code) : scanPackageFile(code);
     if (node.kind === 'own') for (const p of scan.problems) addProblem(`T-11a: ${p} en ${toPosix(path.relative(REPO_ROOT, file))}`);
-    else node.warnings.push(...scan.warnings);
+    else {
+      node.warnings.push(...scan.warnings);
+      for (const site of scan.sites) checkSite(node, site);
+    }
 
     for (const edge of scan.edges) {
       const spec = edge.spec;
@@ -204,8 +269,11 @@ export function buildGraph(entry, opts = {}) {
         target = null;
       }
       if (node.kind === 'package' && !lock.names.has(name)) {
+        externalSpecs.add(name);
+        // Antes era aviso si no se resolvía: el veredicto dependía del entorno. Ahora es error
+        // siempre, salvo excepción revisada; y aun con excepción, si se resuelve, es error.
         if (target) addProblem(`T-11a: dependencia transitiva fuera del lockfile que SÍ se resuelve (se cargaría desde ${toPosix(path.relative(REPO_ROOT, target))}): ${name}`);
-        else node.warnings.push(`require opcional no instalado (no se carga): ${name}`);
+        else if (checkSite(node, { kind: 'optional-absent', line: edge.line, spec: name })) node.warnings.push(`require opcional no instalado, revisado (no se carga): ${name}`);
         continue;
       }
       if (!target) {
@@ -217,15 +285,21 @@ export function buildGraph(entry, opts = {}) {
       queue.push({ file: real, phase1: phase1 && !edge.dynamic });
     }
   }
-  return { entry: entryAbs, ownRoot, nodes, problems };
+  exceptions.forEach((e, i) => {
+    if (!usedExceptions.has(i)) addProblem(`T-11a: excepción obsoleta (no aparece en el grafo): ${e.package}:${e.file}:${e.line} ${e.kind}`);
+  });
+  return { entry: entryAbs, ownRoot, containRoot, nodes, problems, externalSpecs, usedExceptions: [...usedExceptions].map((i) => exceptions[i]) };
 }
 
 export function checkT11a(graph) {
   return graph.problems.filter((p) => p.startsWith('T-11a'));
 }
 
+const ownCount = (graph) => [...graph.nodes.values()].filter((n) => n.kind === 'own').length;
+
 export function checkT11b(graph, blocklist = BLOCKLIST) {
   const hits = [];
+  if (ownCount(graph) === 0) hits.push('T-11b: 0 archivos propios en el grafo (verificación vacía)');
   const idRes = blocklist.identifiers.map((id) => [id, new RegExp(`(?<![A-Za-z0-9_$])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_$])`)]);
   const patRes = (blocklist.patterns ?? []).map((p) => [p, new RegExp(p)]);
   for (const node of graph.nodes.values()) {
@@ -242,6 +316,7 @@ export function checkT11c(graph, inventoryText) {
   const inv = parseInventory(inventoryText);
   const hits = [];
   if (inv.flagged.size === 0) hits.push('T-11c: el inventario no tiene módulos marcados (¿inventario vacío o ilegible?)');
+  if (ownCount(graph) === 0) hits.push('T-11c: 0 archivos propios en el grafo (verificación vacía)');
   for (const node of graph.nodes.values()) {
     const noExt = node.file.replace(/\.(d\.ts|[cm]?[jt]sx?|json)$/, '');
     if (isInside(node.file, LEGACY_SRC)) {
@@ -307,6 +382,7 @@ async function cli(argv) {
   out.push(`  paquetes alcanzados (${s.packages.length}, todos en el cierre de producción del lockfile): ${s.packages.join(', ')}`);
   out.push(`  builtins usados por paquetes: ${s.builtinsPackages.join(', ') || '-'}`);
   out.push(`  avisos: ${s.optionalMissing.join('; ') || '-'}`);
+  out.push(`  excepciones revisadas usadas (${graph.usedExceptions.length}): ${graph.usedExceptions.map((e) => `${e.package}@${e.version}:${e.file}:${e.line} ${e.kind}`).join('; ') || '-'}`);
   out.push(`  T-11a: ${a.length === 0 ? 'OK' : `FALLA (${a.length})`}`);
   out.push(`  T-11b: ${b.length === 0 ? 'OK' : `FALLA (${b.length})`}`);
   out.push(`  T-11c: ${c.length === 0 ? `OK (inventario ${parseInventory(inventoryText).commit}, ${parseInventory(inventoryText).flagged.size} módulos marcados)` : `FALLA (${c.length})`}`);

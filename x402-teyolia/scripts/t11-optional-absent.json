@@ -1,0 +1,15 @@
+{
+  "_doc": "T-11a (PR-2 commit 1; Auditor L1P-L3 y PR1-L5): sitios revisados en paquetes del cierre de producción que no se pueden resolver estáticamente. Cada entrada debe coincidir en paquete, versión, archivo, línea, tipo, especificador y SHA-256 del archivo (n7) y aparecer en el grafo (n8). Cualquier otro require opcional, no literal u opaco hace fallar T-11a. Ampliar esta lista exige dictamen del Auditor.",
+  "entries": [
+    {
+      "package": "express",
+      "version": "5.2.1",
+      "file": "lib/view.js",
+      "line": 81,
+      "kind": "require-no-literal",
+      "spec": "mod",
+      "sha256": "74f4171b66263e22481820bc5975708f7dd8a61484f570aac7c5b4ab77ecbd79",
+      "justification": "Carga de motores de plantillas en View#render (res.render / app.render). x402-teyolia no configura 'view engine' ni llama render; T-11b/T-11d y --permission (PR-6) cubren el runtime."
+    }
+  ]
+}
