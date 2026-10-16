@@ -9,7 +9,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { PACKAGE_ROOT, baselineEnv, http, launch, makeTmp } from './helpers.mjs';
+import { CODEGEN_FLAG, PACKAGE_ROOT, baselineEnv, http, launch, makeTmp } from './helpers.mjs';
 
 const dist = (f) => pathToFileURL(path.join(PACKAGE_ROOT, 'dist', f)).href;
 const { GrantDb } = await import(dist('grant-db.js'));
@@ -205,7 +205,7 @@ describe('PR-3 T-18 y configuración de persistencia (fail-closed)', () => {
     writeFileSync(path.join(legacy, 'campaigns.db'), 'LEGACY');
     const before = statSync(path.join(legacy, 'campaigns.db'));
     const env = { ...baselineEnv(home), TEYOLIA_X402_ENABLED: 'true', ...ok(home), TEYOLIA_X402_GRANT_DB_PATH: path.join(legacy, 'grant.sqlite') };
-    const r = await launch({ env, cwd: freshDir('x402-cwd-') });
+    const r = await launch({ env, cwd: freshDir('x402-cwd-'), execArgv: [CODEGEN_FLAG] });
     if (r.started) { await r.stop(); assert.fail('arrancó'); }
     assert.equal(r.code, 78);
     assert.match(r.stderr, /persistencia rechazada: TEYOLIA_X402_GRANT_DB_PATH \(el directorio contiene la DB legacy campaigns\.db \(T-18\)\)/);
@@ -228,7 +228,7 @@ describe('PR-3 T-07 (TR-01): cierre ordenado con el store x402 abierto', () => {
   const start = async () => {
     const home = freshDir('x402-pr3-t07-');
     const env = { ...baselineEnv(home), TEYOLIA_X402_ENABLED: 'true', TEYOLIA_X402_STORE_PATH: path.join(home, 'store.sqlite'), TEYOLIA_X402_GRANT_DB_PATH: path.join(home, 'grant.sqlite') };
-    const r = await launch({ env, cwd: freshDir('x402-cwd-') });
+    const r = await launch({ env, cwd: freshDir('x402-cwd-'), execArgv: [CODEGEN_FLAG] });
     assert.equal(r.started, true, r.stderr);
     return { home, env, r };
   };
@@ -243,7 +243,7 @@ describe('PR-3 T-07 (TR-01): cierre ordenado con el store x402 abierto', () => {
       const exit = await new Promise((res) => { r.child.once('exit', (code, signal) => res({ code, signal })); r.child.kill(sig); });
       assert.deepEqual(exit, { code: 0, signal: null });
       assert.deepEqual(side(home), []);
-      const again = await launch({ env, cwd: freshDir('x402-cwd-') });
+      const again = await launch({ env, cwd: freshDir('x402-cwd-'), execArgv: [CODEGEN_FLAG] });
       assert.equal(again.started, true, again.stderr);
       await again.stop();
       const db = new DatabaseSync(path.join(home, 'store.sqlite'), { readOnly: true });
