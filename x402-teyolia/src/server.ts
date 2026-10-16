@@ -15,6 +15,9 @@ import {
   killSwitchState,
   readRateLimits,
 } from './policy.js';
+import { GrantDb } from './grant-db.js';
+import { X402InvoiceStore } from './invoice-store.js';
+import { PersistenceConfigError, readPersistenceConfig } from './persistence-config.js';
 
 export const DEMO_ROUTE = '/x402/v1/access/demo';
 export const X402_PREFIX = '/x402';
@@ -66,12 +69,48 @@ export function createApp(env: Env): express.Express {
   return app;
 }
 
+/** Recursos persistentes del proceso (PR-3). Solo existen con el kill switch ON. */
+export interface Persistence {
+  readonly store: X402InvoiceStore;
+  readonly grants: GrantDb;
+}
+
+/**
+ * Abre store y grant (archivos propios y distintos) solo con el kill switch ON: con OFF no se
+ * crea ni se escribe ningún archivo (R-14). Configuración inválida -> null y exitCode 78.
+ */
+export function openPersistence(env: Env): Persistence | null | 'invalid' {
+  if (killSwitchState(env) !== 'ON') return null;
+  try {
+    const cfg = readPersistenceConfig(env);
+    const store = new X402InvoiceStore(cfg.storePath);
+    try {
+      return { store, grants: new GrantDb(cfg.grantDbPath) };
+    } catch (err) {
+      store.shutdown();
+      throw err;
+    }
+  } catch (err) {
+    const why = err instanceof PersistenceConfigError ? `${err.variable} (${err.reason})` : 'error al abrir la persistencia';
+    process.stderr.write(`x402-teyolia: persistencia rechazada: ${why}\n`);
+    return 'invalid';
+  }
+}
+
 export function startServer(env: Env): void {
+  const persistence = openPersistence(env);
+  if (persistence === 'invalid') {
+    process.stderr.write('x402-teyolia: arranque abortado por la configuración de persistencia\n');
+    process.exitCode = 78;
+    return;
+  }
   const app = createApp(env);
   const port = Number(env['TEYOLIA_X402_LISTEN']);
   const server = app.listen(port, '127.0.0.1', (error?: Error) => {
     if (error) {
       process.stderr.write('x402-teyolia: no se pudo abrir el puerto\n');
+      persistence?.grants.shutdown();
+      persistence?.store.shutdown();
       process.exitCode = 1;
       return;
     }
@@ -81,10 +120,21 @@ export function startServer(env: Env): void {
       `x402-teyolia: escuchando en 127.0.0.1:${bound} (kill switch ${killSwitchState(env)})\n`,
     );
   });
+  // TR-01 (T-07): cierre ordenado en SIGTERM/SIGINT. Deja de aceptar conexiones, cierra las
+  // inactivas y, al cerrar el servidor, hace checkpoint WAL y cierra grant y store.
+  let stopping = false;
   const shutdown = (): void => {
+    if (stopping) return;
+    stopping = true;
     server.close(() => {
-      process.exitCode = 0;
+      let ok = true;
+      for (const close of [() => persistence?.grants.shutdown(), () => persistence?.store.shutdown()]) {
+        try { close(); } catch { ok = false; }
+      }
+      if (!ok) process.stderr.write('x402-teyolia: error en el cierre ordenado de la persistencia\n');
+      process.exitCode = ok ? 0 : 1;
     });
+    server.closeIdleConnections();
   };
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);

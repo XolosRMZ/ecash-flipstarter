@@ -41,7 +41,8 @@ describe('kill switch: matriz OFF (todo valor distinto de \'true\' exacto)', () 
 
 describe('kill switch: ON solo con NODE_ENV=test (P4-L5 adelantado)', () => {
   test("'true' + NODE_ENV=test -> arranca y la ruta sigue en 503 TEYOLIA_X402_NOT_IMPLEMENTED", async () => {
-    await withServer({ TEYOLIA_X402_ENABLED: 'true' }, async (port) => {
+    // PR-3: con ON, store y grant son obligatorios (archivos propios en el tmp del test).
+    await withServer({ TEYOLIA_X402_ENABLED: 'true', TEYOLIA_X402_STORE_PATH: path.join(tmp.dir, 'store.sqlite'), TEYOLIA_X402_GRANT_DB_PATH: path.join(tmp.dir, 'grant.sqlite') }, async (port) => {
       const d = await http(port, 'GET', '/x402/v1/access/demo');
       assert.equal(d.status, 503);
       assert.deepEqual(d.json, { error: 'TEYOLIA_X402_NOT_IMPLEMENTED' });

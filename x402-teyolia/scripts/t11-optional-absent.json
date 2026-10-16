@@ -83,6 +83,32 @@
       "constructLine": 157,
       "sha256": "968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3",
       "justification": "Sonda allowsEval: `new F(\"\")` (l.157) para saber si el entorno permite eval; se omite bajo jitless. Dictamen PR-2 (a): excepción revisada para util.js:157 (constructLine)."
+    },
+    {
+      "surface": "main",
+      "package": "zod",
+      "version": "4.4.3",
+      "file": "v4/core/doc.js",
+      "line": 28,
+      "kind": "codegen",
+      "spec": "= Function",
+      "alias": "F",
+      "constructLine": 33,
+      "sha256": "e084bbcc536746a8942fd33b08afe4db345554b3a0383114f1dca95261c958d9",
+      "justification": "Doc.compile(): JIT del parser de objetos (schemas.js, si jit && allowsEval); el cuerpo sale de la forma del esquema, no de la entrada. Dictamen PR-2 (a): excepción revisada en PR-2 para doc.js:33 (construcción `new F(…)`, constructLine); jitless + test de 0 construcciones en PR-4. PR-3: mismo archivo y SHA, alcanzado ahora desde dist/main.js por @x402-xec/core/sqlite (store de facturas); pendiente de dictamen del Auditor."
+    },
+    {
+      "surface": "main",
+      "package": "zod",
+      "version": "4.4.3",
+      "file": "v4/core/util.js",
+      "line": 156,
+      "kind": "codegen",
+      "spec": "= Function",
+      "alias": "F",
+      "constructLine": 157,
+      "sha256": "968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3",
+      "justification": "Sonda allowsEval: `new F(\"\")` (l.157) para saber si el entorno permite eval; se omite bajo jitless. Dictamen PR-2 (a): excepción revisada para util.js:157 (constructLine). PR-3: mismo archivo y SHA, alcanzado ahora desde dist/main.js por @x402-xec/core/sqlite (store de facturas); pendiente de dictamen del Auditor."
     }
   ]
 }
