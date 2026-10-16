@@ -63,6 +63,14 @@ const PACKAGE_CODEGEN = [
   /=\s*Function\b(?!\s*[.(\w$])/g,
   /(?<![\w$.])eval\s*\(/g,
   /[:=,(]\s*eval\b(?!\s*[(\w$])/g,
+  // Codex #64 r4295643573: formas indirectas de Function/eval. Invocación con ?.() (eval?.(src)),
+  // .call(/.apply( invocados y .bind (Function.call(null, src)); `Function.call.bind(f)` (idioma de
+  // uncurry, iconv-lite) no construye código y no cuenta; new Function sin paréntesis y Function como
+  // argumento (Reflect.construct(Function, [...]); eval como argumento ya lo cubre la regla anterior).
+  /(?<![\w$.])(?:Function|eval)\s*\?\.\s*\(/g,
+  /(?<![\w$.])(?:Function|eval)\s*(?:\?\.|\.)\s*(?:(?:call|apply)\s*(?:\?\.\s*)?\(|bind\b)/g,
+  /(?<![\w$.])new\s+Function\b(?!\s*\()/g,
+  /[,(]\s*Function\b(?!\s*(?:[.(\w$]|\?\.))/g,
 ];
 export const ESM_CONDITIONS = ['node', 'import', 'default'];
 export const SURFACES = { vendor: 'scripts/vendor-surface.mjs' };

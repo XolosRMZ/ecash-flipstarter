@@ -313,6 +313,39 @@ describe('T-11a ESM (PR-2b C4)', () => {
     const { g } = syntheticEsm({ files: { 'index.js': "// new Function('x')\nexport const s = 'new Function(1)';\n" } });
     assert.deepEqual(checkT11a(g), []);
   });
+  // Codex #64 r4295643573 (P2): formas indirectas de Function/eval -> codegen no revisado.
+  for (const [label, code] of [
+    ['Function.call(null, src)', "export const f = Function.call(null, 'return 1');\n"],
+    ['Function.apply(null, [src])', "export const f = Function.apply(null, ['return 1']);\n"],
+    ['Function.bind(null)', "export const F = Function.bind(null);\n"],
+    ['Function?.call(…) / Function.call?.(…)', "export const f = Function?.call(null, 'return 1');\nexport const g = Function.call?.(null, 'return 1');\n"],
+    ['Reflect.construct(Function, [src])', "export const f = Reflect.construct(Function, ['return 1']);\n"],
+    ['Reflect.apply(Function, null, [src])', "export const f = Reflect.apply(Function, null, ['return 1']);\n"],
+    ['eval?.(src)', "export const v = eval?.('1');\n"],
+    ['eval.call(null, src)', "export const v = eval.call(null, '1');\n"],
+    ['new Function sin paréntesis', 'export const f = new Function;\n'],
+    ['Function?.(src)', "export const f = Function?.('return 1');\n"],
+  ]) {
+    test(`Codex #64 codegen: ${label} en un paquete -> rechazado`, () => {
+      const { g } = syntheticEsm({ files: { 'index.js': code } });
+      expectA(g, /codegen no revisado en fakepkg@1\.0\.0:index\.js:1 /);
+    });
+  }
+  test('Codex #64 codegen (controles negativos): código legítimo no cuenta como codegen', () => {
+    const { g } = syntheticEsm({ files: { 'index.js': [
+      'export const hasOwn = Function.call.bind(Object.prototype.hasOwnProperty);',
+      'export const bindP = Function.prototype.bind;',
+      'export const callP = Function.prototype.call.call(Object.prototype.toString, 1);',
+      'export const isFn = (x) => x instanceof Function;',
+      'export const t = (f) => typeof f === "function" && f.call(null) && f.apply(null, []);',
+      'export const o = { evaluate() { return 1; } };',
+      'export const r = Reflect.construct(Date, []);',
+      'export const s = "Function.call(null, 1) eval?.(1) Reflect.construct(Function, [])";',
+      '// Function.call(null, "x"); eval?.("1")',
+      '',
+    ].join('\n') } });
+    assert.deepEqual(checkT11a(g), []);
+  });
   test('e7 (positivo): exports con import/require elige la rama import; patrones * y subrutas', () => {
     const { g, dir } = syntheticEsm({
       pkgJson: { exports: { '.': { require: './cjs.cjs', import: './esm.js' }, './sub/*': { import: './lib/*.js' } } },
