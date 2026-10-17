@@ -80,7 +80,7 @@ describe('D-5: 409 RECONCILIATION_REQUIRED con revisión humana', () => {
     const g = fresh({ now: () => now });
     const s = paid('6');
     now = 1_100 + 600;
-    assert.deepEqual(g.reconcile({ listPaid: () => [{ invoiceHash: s.invoice.invoiceHash, settledTxid: s.invoice.settledTxid, settledAt: 1_100 }] }, { expirySeconds: 300 }), [s.invoice.invoiceHash]);
+    assert.deepEqual(g.reconcile({ listPaid: () => [{ invoiceHash: s.invoice.invoiceHash, settledTxid: s.invoice.settledTxid, settledAt: 1_100, issuedAt: 1_000, expiresAt: 1_300 }] }), [s.invoice.invoiceHash]);
     for (let i = 0; i < 3; i++) assert.deepEqual(g.recordGrant(s), { ok: false, httpStatus: 409, code: 'RECONCILIATION_REQUIRED' });
     assert.equal(g.countGrants(), 0);
     const methods = Object.getOwnPropertyNames(GrantDb.prototype);
@@ -90,7 +90,7 @@ describe('D-5: 409 RECONCILIATION_REQUIRED con revisión humana', () => {
     const g = fresh({ now: () => 9_999 });
     const s = paid('5');
     g.recordGrant(s);
-    assert.deepEqual(g.reconcile({ listPaid: () => [{ invoiceHash: s.invoice.invoiceHash, settledTxid: s.invoice.settledTxid, settledAt: 1 }] }, { expirySeconds: 300 }), []);
+    assert.deepEqual(g.reconcile({ listPaid: () => [{ invoiceHash: s.invoice.invoiceHash, settledTxid: s.invoice.settledTxid, settledAt: 1, issuedAt: 1_000, expiresAt: 1_300 }] }), []);
     assert.equal(g.recordGrant(s).status, 'EFFECT_REPLAYED');
   });
 });

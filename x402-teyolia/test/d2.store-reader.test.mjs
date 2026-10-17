@@ -35,7 +35,7 @@ describe('D-2 (a): lector de solo lectura del store', () => {
     for (const r of [a, b, c]) await store.issue(r);
     await store.commitPaid(a.invoiceHash, hex('1'), 1_100);
     const r = new ReadOnlyStoreReader(p);
-    assert.deepEqual([...r.listPaid()], [{ invoiceHash: a.invoiceHash, settledTxid: hex('1'), settledAt: 1_100 }]);
+    assert.deepEqual([...r.listPaid()], [{ invoiceHash: a.invoiceHash, settledTxid: hex('1'), settledAt: 1_100, issuedAt: 1_000, expiresAt: 1_300 }]);
     assert.deepEqual(r.listExpiredIssued(1_299).map((x) => x.invoiceHash), [], 'expiresAt exclusivo: aún vigente');
     assert.deepEqual(r.listExpiredIssued(1_300).map((x) => x.invoiceHash), [b.invoiceHash, c.invoiceHash].sort());
     r.close(); store.shutdown();
@@ -94,7 +94,7 @@ describe('D-2 (a): ventana de conciliación = expiración + margen de reintento'
     assert.equal(DEFAULT_EXPIRY_SECONDS, 300);
     assert.equal(RECONCILE_RETRY_MARGIN_SECONDS, 300);
     assert.equal(reconcileMinAgeSeconds(readExpirySeconds({})), 600);
-    assert.equal(reconcileMinAgeSeconds(60), 360);
+    assert.equal(reconcileMinAgeSeconds(60), 600, 'Codex #66: mínimo 600 s (PR4-H)');
     for (const e of [0, -1, 1.5, 3601, NaN, undefined]) assert.throws(() => reconcileMinAgeSeconds(e), RangeError);
     for (const raw of ['0', '-5', '1e3', ' 300', '3601', 'abc']) assert.throws(() => readExpirySeconds({ TEYOLIA_X402_EXPIRY_SECONDS: raw }));
     assert.equal(readExpirySeconds({ TEYOLIA_X402_EXPIRY_SECONDS: '120' }), 120);
@@ -108,7 +108,7 @@ describe('D-2 (a): ventana de conciliación = expiración + margen de reintento'
       await store.commitPaid(rec.invoiceHash, hex('2'), 1_200);
       const g = new GrantDb(path.join(dir, 'grant.sqlite'), { now: () => 1_200 + age });
       const reader = new ReadOnlyStoreReader(p);
-      assert.deepEqual(g.reconcile(reader, { expirySeconds: 300 }), expectMarked ? [rec.invoiceHash] : []);
+      assert.deepEqual(g.reconcile(reader), expectMarked ? [rec.invoiceHash] : []);
       assert.equal(g.reconciliationState(rec.invoiceHash), expectMarked ? 'RECONCILIATION_REQUIRED' : null);
       assert.equal((await store.getByInvoiceHash(rec.invoiceHash)).state, 'PAID', 'el lector no cambia el store');
       reader.close(); g.shutdown(); store.shutdown();

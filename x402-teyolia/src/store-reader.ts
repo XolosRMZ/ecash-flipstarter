@@ -9,7 +9,7 @@
 
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import type { PaidInvoiceSource } from './grant-db.js';
+import type { PaidInvoice, PaidInvoiceSource } from './grant-db.js';
 
 /** sqlite_master del store de 0f409de (`BaseSqliteAuthoritativeInvoiceStore.initDatabase`). */
 export const STORE_SCHEMA_0F409DE: readonly { type: string; name: string; tbl_name: string; sql: string | null }[] = Object.freeze([
@@ -62,12 +62,19 @@ export class ReadOnlyStoreReader implements PaidInvoiceSource {
     this.#db = db;
   }
 
-  /** Facturas PAID (para la conciliación de T-03). */
-  *listPaid(): Iterable<{ invoiceHash: string; settledTxid: string; settledAt: number }> {
+  /**
+   * Facturas PAID (para la conciliación de T-03), con su vida persistida (Codex #66: issued_at y
+   * expires_at). Un valor que no sea un entero de SQLite se entrega como NaN para que la
+   * conciliación falle cerrada (ReconcileDataError); nunca se convierte desde texto.
+   */
+  *listPaid(): Iterable<PaidInvoice> {
+    const int = (v: unknown): number => (typeof v === 'number' && Number.isSafeInteger(v) ? v : Number.NaN);
     const rows = this.#db
-      .prepare("SELECT invoice_hash, settled_txid, settled_at FROM invoices WHERE state = 'PAID' AND settled_txid IS NOT NULL AND settled_at IS NOT NULL ORDER BY invoice_hash")
-      .all() as { invoice_hash: string; settled_txid: string; settled_at: number }[];
-    for (const r of rows) yield { invoiceHash: r.invoice_hash, settledTxid: r.settled_txid, settledAt: Number(r.settled_at) };
+      .prepare("SELECT invoice_hash, settled_txid, settled_at, issued_at, expires_at FROM invoices WHERE state = 'PAID' AND settled_txid IS NOT NULL AND settled_at IS NOT NULL ORDER BY invoice_hash")
+      .all() as { invoice_hash: string; settled_txid: string; settled_at: unknown; issued_at: unknown; expires_at: unknown }[];
+    for (const r of rows) {
+      yield { invoiceHash: r.invoice_hash, settledTxid: r.settled_txid, settledAt: int(r.settled_at), issuedAt: int(r.issued_at), expiresAt: int(r.expires_at) };
+    }
   }
 
   /** Facturas ISSUED ya vencidas (`expires_at <= now`; límite exclusivo de upstream), para M1/L-01. */
