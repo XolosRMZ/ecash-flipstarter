@@ -152,7 +152,13 @@ export class GrantDb {
     const db = this.#db;
     db.exec('BEGIN IMMEDIATE');
     try {
-      if (db.prepare('SELECT 1 FROM x402_reconciliation WHERE invoice_hash = ?').get(inv.invoiceHash)) {
+      // D-5 y Codex #66 r4299872959: una factura marcada para revisión humana (conciliación o pago
+      // tardío) nunca recibe grant. Se comprueba dentro de esta misma BEGIN IMMEDIATE, que
+      // serializa con la de reviewLatePayments(): una factura nunca queda con grant y revisión.
+      if (
+        db.prepare('SELECT 1 FROM x402_reconciliation WHERE invoice_hash = ?').get(inv.invoiceHash) ||
+        db.prepare('SELECT 1 FROM x402_late_payment_review WHERE invoice_hash = ?').get(inv.invoiceHash)
+      ) {
         db.exec('COMMIT');
         return { ok: false, httpStatus: 409, code: 'RECONCILIATION_REQUIRED' };
       }
@@ -245,6 +251,9 @@ export class GrantDb {
    * M1 / L-01 (INF-042 §10.1 LATE_PAYMENT_REVIEW): facturas ISSUED ya vencidas cuyo payTo recibió
    * fondos según la sonda inyectada quedan marcadas LATE_PAYMENT_REVIEW para revisión humana.
    * Sin grant y sin movimiento de fondos (devolución manual vía Wallet, fuera de Teyolia).
+   * La sonda corre fuera de la transacción; el «¿ya tiene grant?» y la marca van en una sola
+   * BEGIN IMMEDIATE, serializada con la de recordGrant() (Codex #66 r4299872959): si el grant
+   * ganó, no se marca; si la marca ganó, recordGrant() responde 409 RECONCILIATION_REQUIRED.
    */
   async reviewLatePayments(expired: Iterable<{ readonly invoiceHash: string; readonly payTo: string; readonly expiresAt: number }>, probe: LatePaymentProbe): Promise<string[]> {
     const now = this.#now();
