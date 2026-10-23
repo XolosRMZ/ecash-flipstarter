@@ -176,9 +176,11 @@ export function openPersistence(env: Env): Persistence | null | 'invalid' {
   if (killSwitchState(env) !== 'ON') return null;
   try {
     const cfg = readPersistenceConfig(env);
+    // P4-L3 (PR-4; PR-5): toda la configuración se valida ANTES de crear el primer archivo.
+    const redelivery = readRedeliveryOptions(env);
     const store = new X402InvoiceStore(cfg.storePath);
     try {
-      return { store, grants: new GrantDb(cfg.grantDbPath, readRedeliveryOptions(env)) };
+      return { store, grants: new GrantDb(cfg.grantDbPath, redelivery) };
     } catch (err) {
       store.shutdown();
       throw err;
@@ -190,7 +192,26 @@ export function openPersistence(env: Env): Persistence | null | 'invalid' {
   }
 }
 
+/**
+ * P4-L3 (PR-4; PR-5): valida la configuración de la app (proxy de confianza, expiración y límites
+ * de tasa) sin efectos. startServer la llama ANTES de openPersistence, así que un error de
+ * configuración sale con 78 sin haber creado ni abierto el store ni la DB del grant.
+ */
+export function validateAppConfig(env: Env): void {
+  readRateLimits(env);
+  readTrustProxy(env);
+  readExpirySeconds(env);
+}
+
 export function startServer(env: Env): void {
+  try {
+    validateAppConfig(env);
+  } catch (err) {
+    const why = err instanceof TrustProxyConfigError || err instanceof ExpiryConfigError ? err.message : 'configuración no válida';
+    process.stderr.write(`x402-teyolia: configuración rechazada: ${why}\n`);
+    process.exitCode = 78;
+    return;
+  }
   const persistence = openPersistence(env);
   if (persistence === 'invalid') {
     process.stderr.write('x402-teyolia: arranque abortado por la configuración de persistencia\n');
