@@ -1,7 +1,8 @@
 // Punto de entrada en dos fases (plan v1.0 §4.2.2).
 // Fase 1: solo node:* y ./env-guard.js. Fase 2 (si pasa): `await import('./server.js')`,
 // que es el primer punto donde se carga Express.
-// Limitación conocida (Auditor P4-L3): código precargado por NODE_OPTIONS/--import/--require
+// Limitación conocida (Auditor, revisión P-4 del diseño de PR-1: P-4/L3; no es el P4-L3 del
+// dictamen PR-4): código precargado por NODE_OPTIONS/--import/--require
 // se ejecuta ANTES de este archivo. Este guard lo detecta y rechaza el arranque, pero no lo
 // previene; la barrera real es el lanzador (PR-6).
 

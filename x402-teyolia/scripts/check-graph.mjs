@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// T-11a / T-11b / T-11c sobre el bundle x402 (plan v1.0 §4.5; Auditor P4-L2).
+// T-11a / T-11b / T-11c sobre el bundle x402 (plan v1.0 §4.5; Auditor P-4/L2).
 //   T-11a: grafo de imports desde dist/main.js, siguiendo imports estáticos Y dinámicos
 //          (incluido `import('./server.js')`). Solo se admiten: archivos propios del paquete,
 //          node:* enumerados (scripts/t11-blocklist.json) y paquetes del cierre de

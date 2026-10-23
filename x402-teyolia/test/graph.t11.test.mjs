@@ -1,4 +1,4 @@
-// T-11a / T-11b / T-11c con controles negativos (Auditor P4-L2): cada verificador DEBE
+// T-11a / T-11b / T-11c con controles negativos (Auditor P-4/L2): cada verificador DEBE
 // rechazar un fixture construido para violarlo, y el bundle real debe pasar.
 
 import assert from 'node:assert/strict';

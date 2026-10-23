@@ -1,5 +1,5 @@
 // Fase 2: Express 5, sin body parser. Solo se carga si el guard de entorno pasó.
-// Rutas (Auditor P4-L4):
+// Rutas (Auditor, revisión P-4 del diseño de PR-1, P-4/L4):
 //   - x402: `/x402/v1/access/demo` (y `/x402/v1/access/demo-alt`, para R-13) y todo `/x402/**`.
 //     OFF -> 503 TEYOLIA_X402_DISABLED, evaluado ANTES de cualquier middleware (R-14).
 //     ON sin adaptadores inyectados -> 503 TEYOLIA_X402_NOT_IMPLEMENTED (el proceso real no tiene
@@ -146,7 +146,7 @@ export function createApp(env: Env, adapters?: X402Adapters): express.Express {
 
 /**
  * Opciones de la DB del grant desde la allowlist (D-4). Inválido -> error de configuración.
- * P4-L1: los valores de Q-09 son el tope (máx. 10 reentregas, ventana máx. 86400 s); un valor mayor
+ * P4-L1 (dictamen PR-4): los valores de Q-09 son el tope (máx. 10 reentregas, ventana máx. 86400 s); un valor mayor
  * falla cerrado (exit 78), igual que uno no numérico o por debajo del mínimo.
  */
 export function readRedeliveryOptions(env: Env): { redeliveryMax: number; redeliveryWindowSeconds: number } {

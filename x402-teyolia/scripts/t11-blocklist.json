@@ -1,5 +1,5 @@
 {
-  "_doc": "Lista negativa de T-11b (OB-03 mínima de INF-044 §3.4 + columna «Falta» de INF-045 §4.3 + símbolos de firma). Vive en scripts/, fuera de src/ y dist/ (Auditor P4-L2), para que T-11b no se encuentre a sí misma en el bundle.",
+  "_doc": "Lista negativa de T-11b (OB-03 mínima de INF-044 §3.4 + columna «Falta» de INF-045 §4.3 + símbolos de firma). Vive en scripts/, fuera de src/ y dist/ (Auditor P-4/L2), para que T-11b no se encuentre a sí misma en el bundle.",
   "identifiers": [
     "FinalizeService",
     "AutoPayoutService",

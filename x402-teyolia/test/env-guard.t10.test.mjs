@@ -174,9 +174,9 @@ describe('T-10i: NODE_* y flags de arranque (TA2.1-L1, comentario 4/6)', () => {
     ['--experimental-loader', `--experimental-loader=${marker}`],
     ['--require', `--require=${markerCjs}`],
   ]) {
-    test(`T-10i env NODE_OPTIONS=${label}: no arranca; el marcador de precarga SÍ aparece (limitación P4-L3)`, async () => {
+    test(`T-10i env NODE_OPTIONS=${label}: no arranca; el marcador de precarga SÍ aparece (limitación P-4/L3)`, async () => {
       const r = await expectNoStart({ extraEnv: { NODE_OPTIONS: opt }, expectName: 'NODE_OPTIONS', expectRules: ['B'] });
-      assert.equal(existsSync(path.join(r.cwd, 'preload-marker.txt')), true, 'P4-L3: el código precargado se ejecutó antes del guard (detección, no prevención)');
+      assert.equal(existsSync(path.join(r.cwd, 'preload-marker.txt')), true, 'P-4/L3: el código precargado se ejecutó antes del guard (detección, no prevención)');
     });
   }
 

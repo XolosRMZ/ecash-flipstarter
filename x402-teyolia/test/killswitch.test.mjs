@@ -1,4 +1,4 @@
-// Kill switch TEYOLIA_X402_ENABLED (DEC-AX-08 (a); INF-042 R-14/C-04) y rutas (Auditor P4-L4).
+// Kill switch TEYOLIA_X402_ENABLED (DEC-AX-08 (a); INF-042 R-14/C-04) y rutas (Auditor P-4/L4).
 
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -39,7 +39,7 @@ describe('kill switch: matriz OFF (todo valor distinto de \'true\' exacto)', () 
   }
 });
 
-describe('kill switch: ON solo con NODE_ENV=test (P4-L5 adelantado)', () => {
+describe('kill switch: ON solo con NODE_ENV=test (P-4/L5 adelantado)', () => {
   test("'true' + NODE_ENV=test -> arranca y la ruta sigue en 503 TEYOLIA_X402_NOT_IMPLEMENTED", async () => {
     // PR-3: con ON, store y grant son obligatorios (archivos propios en el tmp del test).
     await withServer({ TEYOLIA_X402_ENABLED: 'true', TEYOLIA_X402_STORE_PATH: path.join(tmp.dir, 'store.sqlite'), TEYOLIA_X402_GRANT_DB_PATH: path.join(tmp.dir, 'grant.sqlite') }, async (port) => {
@@ -62,7 +62,7 @@ describe('kill switch: ON solo con NODE_ENV=test (P4-L5 adelantado)', () => {
   }
 });
 
-describe('rutas (P4-L4): todo x402 en 503; health propio; nada en /proposed/v0.1/ ni /api/health', () => {
+describe('rutas (P-4/L4): todo x402 en 503; health propio; nada en /proposed/v0.1/ ni /api/health', () => {
   test('matriz de rutas con kill switch OFF', async () => {
     await withServer({}, async (port) => {
       for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']) {
