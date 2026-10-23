@@ -42,6 +42,9 @@ describe('PT-01: versiones desconocidas', () => {
     assert.equal(h.provider.calls, 0, 'una prueba mal formada no llega a Chronik');
     assert.equal((await h.store.getByInvoiceHash(invoiceHash)).state, 'ISSUED');
     assert.equal(h.grants.countGrants(), 0);
+    // Par positivo (PT5-10): la misma prueba con x402Version 1 -> 200 GRANTED.
+    const ok = await h.req('GET', server.DEMO_ROUTE, { 'payment-proof': raw({ ...base, x402Version: 1 }) });
+    assert.equal(ok.status, 200); assert.equal(ok.json.status, 'GRANTED');
     await h.close();
   });
 });
@@ -77,7 +80,7 @@ describe('PT-02: CAE simulado, expiración y revocación', () => {
     ['needs_human_approval con aprobación enlazada (control positivo)', (t) => ({ version: 1, decision: 'needs_human_approval', expiresAt: t + 60 }), { human: async () => ({ approved: true, intentDigest: intent.digest }) }, true],
   ];
   for (const [label, script, opts, expectPay] of scenarios) {
-    test(`PT-02b: ${label} -> ${expectPay ? 'paga una vez y 200' : 'no paga; sin PAID, sin grant y sin Chronik'}`, async () => {
+    test(`PT-02b (simulación de contrato): ${label} -> ${expectPay ? 'paga una vez y 200' : 'no paga; sin PAID, sin grant y sin Chronik'}`, async () => {
       const h = await startApp();
       const { invoice, invoiceHash } = await issue(h);
       let revokedFlag = false;
@@ -136,6 +139,9 @@ describe('PT-03: campos extra con secretos o raw tx', () => {
     }
     assert.equal(h.provider.calls, 0);
     assert.equal(h.grants.countGrants(), 0);
+    // Par positivo (PT5-10): la misma prueba sin los campos extra -> 200 GRANTED.
+    const ok = await h.req('GET', server.DEMO_ROUTE, { 'payment-proof': proofHeader(invoiceHash, txid) });
+    assert.equal(ok.status, 200); assert.equal(ok.json.status, 'GRANTED');
     await h.close();
   });
 });
@@ -175,7 +181,9 @@ describe('PT-06: recurso bloqueado -> reconciliación sin segundo pago', () => {
     assert.equal(await h3.store.getNextDerivationIndex(), next, 'no se emitió una factura nueva (ningún segundo pago)');
     await h3.close();
   });
-  test('PT-06b: reactivación tras expiresAt -> 402 INVOICE_EXPIRED, LATE_PAYMENT_REVIEW (reembolso manual), 0 grants', async () => {
+  // PT5-08: solo lo verificable. El servidor no puede impedir que el cliente pague OTRA factura; la marca
+  // LATE_PAYMENT_REVIEW depende de la sonda inyectada `hasFunds` (fixture).
+  test('PT-06b: reactivación tras expiresAt -> 402 INVOICE_EXPIRED sin oferta ni factura nueva, 0 grants; marca LATE_PAYMENT_REVIEW con la sonda de fixture', async () => {
     const h1 = await startApp();
     const { invoice, invoiceHash, proof } = await paid(h1);
     await h1.close();
@@ -184,7 +192,11 @@ describe('PT-06: recurso bloqueado -> reconciliación sin segundo pago', () => {
     h3.provider.set(txid, { ...payingTx({ payTo: invoice.payTo, timeFirstSeen: invoice.expiresAt - 10 }), txid });
     const r = await h3.req('GET', server.DEMO_ROUTE, { 'payment-proof': proof });
     assert.equal(r.status, 402); assert.equal(r.json.error, 'INVOICE_EXPIRED');
+    assert.equal(r.json.invoice, undefined, 'la respuesta a la prueba vencida no emite oferta');
+    assert.equal(r.headers['payment-required'], undefined);
     const reader = new ReadOnlyStoreReader(path.join(h1.dir, 'store.sqlite'));
+    assert.deepEqual([...reader.listExpiredIssued(h3.clock.t)].map((x) => x.invoiceHash), [invoiceHash], 'sin fila ISSUED nueva');
+    assert.deepEqual(await h3.grants.reviewLatePayments(reader.listExpiredIssued(h3.clock.t), { hasFunds: () => false }), [], 'par negativo: sonda sin fondos -> sin marca');
     assert.deepEqual(await h3.grants.reviewLatePayments(reader.listExpiredIssued(h3.clock.t), { hasFunds: (p) => p === invoice.payTo }), [invoiceHash]);
     assert.equal(h3.grants.latePaymentState(invoiceHash), 'LATE_PAYMENT_REVIEW');
     assert.equal(h3.grants.countGrants(), 0);
@@ -194,7 +206,7 @@ describe('PT-06: recurso bloqueado -> reconciliación sin segundo pago', () => {
 });
 
 describe('PT-07: presupuesto y comisiones con límites cero', () => {
-  test('PT-07a: presupuesto simulado con ZERO_LIMITS reales -> toda reserva >= 1 sat (acumulada o con comisión) se rechaza', () => {
+  test('PT-07a (simulación de contrato, INF-045 §6.4): presupuesto simulado con ZERO_LIMITS reales -> toda reserva >= 1 sat (acumulada o con comisión) se rechaza', () => {
     assert.equal(ZERO_LIMITS.maxAmountPerOperationSats, 0n);
     assert.equal(ZERO_LIMITS.maxAggregateSats, 0n);
     assert.equal(ZERO_LIMITS.agentBudgetSats, 0n);
