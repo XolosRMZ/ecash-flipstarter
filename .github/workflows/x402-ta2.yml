@@ -23,6 +23,13 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          # PR-5, decisión (b) de Fernando, PENDIENTE (dictamen de la tabla PT §9.2, PT5-04 (i)).
+          # M5-V1 expone `commit` = `git rev-parse HEAD` del build. En pull_request, el checkout por
+          # defecto deja HEAD en el merge commit sintético, que no existe en la historia del repo.
+          # Opción recomendada por el Auditor (activa): construir el head del PR. Alternativa: exponer
+          # el merge commit sintético. Para cambiarla, sustituye las DOS apariciones de la expresión
+          # (aquí y en EXPECTED_COMMIT del paso M5-V1) por `${{ github.sha }}`.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -50,3 +57,17 @@ jobs:
 
       - name: Inventario 239f9dc sin cambios (inventory:check)
         run: npm run inventory:check
+
+      # M5-V1 / OB-07 (PR-5). El push de este cambio espera el SHA final auditado (DM-6).
+      - name: M5-V1 rebuild limpio y comparación con dist/build-info.json (check:dist)
+        env:
+          EXPECTED_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          npm run check:dist
+          node scripts/dist-manifest.mjs --print
+          got="$(node -p "JSON.parse(require('fs').readFileSync('dist/build-info.json','utf8')).commit")"
+          if [ "$got" != "$EXPECTED_COMMIT" ]; then echo "M5-V1: commit de build-info $got != esperado $EXPECTED_COMMIT"; exit 1; fi
+          echo "M5-V1: commit de build-info = $EXPECTED_COMMIT (evento $GITHUB_EVENT_NAME)"
+          d="$(mktemp -d)"; cp -R dist "$d/dist"; printf ' ' >> "$d/dist/server.js"
+          if node scripts/dist-manifest.mjs --check "$d/dist"; then echo "control negativo M5-V1: un dist/ mutado NO falló"; exit 1; fi
+          echo "control negativo M5-V1: dist/ mutado rechazado"
