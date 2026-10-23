@@ -1,5 +1,5 @@
 # CI del proceso x402 aislado (TA-2, PR-1). Solo pruebas: sin secretos, sin despliegue,
-# sin release, sin caché y sin artefactos (Auditor P-4, P4-L1 y P4-L7).
+# sin release, sin caché y sin artefactos (Auditor, revisión P-4 del diseño de PR-1: P-4/L1 y P-4/L7).
 # El ci.yml legacy (Node 20) no se modifica.
 name: x402-ta2
 
