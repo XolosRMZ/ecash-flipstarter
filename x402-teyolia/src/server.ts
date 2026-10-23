@@ -6,7 +6,9 @@
 //     txProvider: Chronik solo por fixtures, DEC-AX-09 (a); decisión abierta PR4-A).
 //     ON con adaptadores (solo tests) -> rate limit de emisión (M3) -> createX402SettlementMiddleware
 //     (0f409de, store durable y allocator xpub; sin allowInsecureDevelopmentMode) -> grant.
-//   - health propio: `/teyolia-x402/health`; anuncio propio: `/teyolia-x402/capabilities` (RQ-03,
+//   - health propio: `/teyolia-x402/health` (M5-V1 opción A: `commit` y `distManifestSha256`
+//     declarados en dist/build-info.json, en el nivel superior; sin build-info válido -> 503
+//     TEYOLIA_X402_BUILD_UNVERIFIED); anuncio propio: `/teyolia-x402/capabilities` (RQ-03,
 //     opción preferida: el proceso x402 publica su anuncio; mismo predicado que la ruta, T-17).
 //   - nada bajo `/proposed/v0.1/` (404).
 
@@ -28,6 +30,8 @@ import { createIssuanceLimiter } from './issuance-limit.js';
 import { PersistenceConfigError, readPersistenceConfig } from './persistence-config.js';
 import { ExpiryConfigError, readExpirySeconds } from './reconcile.js';
 import { TrustProxyConfigError, readTrustProxy } from './trust-proxy.js';
+import { BUILD_UNVERIFIED_CODE, loadBuildIdentity } from './build-identity.js';
+import type { BuildIdentity } from './build-identity.js';
 
 export const DEMO_ROUTE = '/x402/v1/access/demo';
 export const DEMO_ALT_ROUTE = '/x402/v1/access/demo-alt';
@@ -65,7 +69,12 @@ export function x402RouteActive(env: Env, adapters: X402Adapters | undefined): b
   return killSwitchState(env) === 'ON' && adapters !== undefined;
 }
 
-export function createApp(env: Env, adapters?: X402Adapters): express.Express {
+/** Opciones de createApp. `buildIdentity` solo lo inyectan los tests; el proceso real lo calcula. */
+export interface AppOptions {
+  readonly buildIdentity?: BuildIdentity;
+}
+
+export function createApp(env: Env, adapters?: X402Adapters, options: AppOptions = {}): express.Express {
   const state = killSwitchState(env);
   const limits = readRateLimits(env);
   const trustProxy = readTrustProxy(env);
@@ -84,12 +93,30 @@ export function createApp(env: Env, adapters?: X402Adapters): express.Express {
       .json({ error: state === 'ON' ? X402_NOT_IMPLEMENTED_CODE : X402_DISABLED_CODE });
   };
 
+  // M5-V1 (opción A): identidad DECLARADA (dist/build-info.json), leída UNA vez al crear la app; no se
+  // recalcula el manifiesto (residual PT5-04 (iv), ver build-identity.ts). Falla cerrado: sin
+  // build-info válido el health responde 503 sin `commit` ni `distManifestSha256` (nunca null). No
+  // cambia las rutas x402 (siguen en 503 en el proceso real) ni el kill switch.
+  const identity = options.buildIdentity ?? loadBuildIdentity();
   app.get(HEALTH_ROUTE, (_req: Request, res: Response) => {
-    res.set('Cache-Control', 'no-store').json({
+    res.set('Cache-Control', 'no-store');
+    if (!identity.ok) {
+      res.status(503).json({
+        status: 'build_unverified',
+        component: 'x402-teyolia',
+        x402Enabled: state === 'ON',
+        limitsZero: limitsAreZero(),
+        error: BUILD_UNVERIFIED_CODE,
+      });
+      return;
+    }
+    res.json({
       status: 'ok',
       component: 'x402-teyolia',
       x402Enabled: state === 'ON',
       limitsZero: limitsAreZero(),
+      commit: identity.commit,
+      distManifestSha256: identity.distManifestSha256,
     });
   });
   app.get(CAPABILITIES_ROUTE, (_req: Request, res: Response) => {
@@ -220,7 +247,9 @@ export function startServer(env: Env): void {
   }
   let app: express.Express;
   try {
-    app = createApp(env);
+    const identity = loadBuildIdentity();
+    app = createApp(env, undefined, { buildIdentity: identity });
+    if (!identity.ok) process.stderr.write(`x402-teyolia: identidad de build no válida (${identity.reason}); health en 503\n`);
   } catch (err) {
     const why = err instanceof TrustProxyConfigError || err instanceof ExpiryConfigError ? err.message : 'configuración no válida';
     process.stderr.write(`x402-teyolia: configuración rechazada: ${why}\n`);

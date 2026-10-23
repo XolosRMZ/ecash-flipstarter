@@ -1,6 +1,7 @@
 // Kill switch TEYOLIA_X402_ENABLED (DEC-AX-08 (a); INF-042 R-14/C-04) y rutas (Auditor P-4/L4).
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { after, before, describe, test } from 'node:test';
@@ -11,6 +12,7 @@ before(() => { tmp = makeTmp('x402-ks-'); });
 after(() => tmp.cleanup());
 
 const policy = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'dist', 'policy.js')).href);
+const buildInfo = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'dist', 'build-info.json'), 'utf8'));
 
 async function withServer(extraEnv, fn, execArgv = []) {
   const env = { ...baselineEnv(tmp.dir), ...extraEnv };
@@ -80,7 +82,13 @@ describe('rutas (P-4/L4): todo x402 en 503; health propio; nada en /proposed/v0.
       }
       const h = await http(port, 'GET', '/teyolia-x402/health');
       assert.equal(h.status, 200);
-      assert.deepEqual(Object.keys(h.json).sort(), ['component', 'limitsZero', 'status', 'x402Enabled']);
+      // M5-V1 opción A (Fernando, 2026-10-23 14:16): claves exactas del health, `commit` y
+      // `distManifestSha256` en el nivel superior y tomados del build verificado.
+      assert.deepEqual(Object.keys(h.json).sort(), ['commit', 'component', 'distManifestSha256', 'limitsZero', 'status', 'x402Enabled']);
+      assert.match(h.json.commit, /^[0-9a-f]{40}$/);
+      assert.match(h.json.distManifestSha256, /^[0-9a-f]{64}$/);
+      assert.equal(h.json.commit, buildInfo.commit);
+      assert.equal(h.json.distManifestSha256, buildInfo.distManifestSha256);
       assert.equal(h.headers['x-powered-by'], undefined);
     });
   });

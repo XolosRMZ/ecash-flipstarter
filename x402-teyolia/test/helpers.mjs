@@ -60,12 +60,12 @@ export function fullAllowlistEnv(home) {
 }
 
 /**
- * Lanza `node [execArgv] dist/main.js` con env explícito.
+ * Lanza `node [execArgv] dist/main.js` (o `main`, una copia del dist/; M5-V1) con env explícito.
  * Resuelve cuando el proceso termina o cuando anuncia el puerto (si arranca).
  */
-export function launch({ env, cwd, execArgv = [], timeoutMs = 8000 }) {
+export function launch({ env, cwd, execArgv = [], timeoutMs = 8000, main = MAIN }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [...execArgv, MAIN], { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [...execArgv, main], { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let settled = false;
