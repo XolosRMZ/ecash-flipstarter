@@ -66,13 +66,13 @@ const FORBIDDEN_EXEC_PREFIXES: readonly string[] = ['--inspect', '--debug'];
  * documentada y NO elegida: `--jitless`, que solo desactiva el JIT y WebAssembly y no bloquea la
  * generación de código desde cadenas. NODE_OPTIONS ya está prohibido (regla B).
  *
- * P4-L2 (dictamen PR-4; nota en PR-5): el flag NO cubre `node:vm`. `vm.Script`, `vm.runIn*Context`,
+ * P4-L2 (PR-4; nota en PR-5): el flag NO cubre `node:vm`. `vm.Script`, `vm.runIn*Context`,
  * `vm.compileFunction` y `vm.SourceTextModule` compilan código desde cadenas sin pasar por el
  * chequeo de V8, y un contexto creado con `codeGeneration: { strings: true }` vuelve a permitir
  * `eval` dentro de él. La barrera contra `node:vm` es estática, no de runtime: T-11a rechaza
  * cualquier builtin fuera de `ownBuiltins` (scripts/t11-blocklist.json) en los archivos propios,
  * y `node:vm` no está en esa lista. En los paquetes de terceros no hay esa barrera; queda como
- * residual LOW documentado (P4-L2).
+ * residual LOW documentado (P4-L2 (PR-4)).
  */
 export const CODEGEN_FLAG = '--disallow-code-generation-from-strings';
 

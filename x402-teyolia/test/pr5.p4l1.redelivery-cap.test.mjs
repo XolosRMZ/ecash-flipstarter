@@ -1,4 +1,4 @@
-// P4-L1 (dictamen PR-4; PR-5): los valores de Q-09 son el tope de la configuración de reentregas.
+// P4-L1 (PR-4; PR-5): los valores de Q-09 son el tope de la configuración de reentregas.
 // TEYOLIA_X402_REDELIVERY_MAX <= 10 y TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS <= 86400; por encima,
 // fail-closed (openPersistence -> 'invalid', proceso -> exit 78; GrantDb -> RangeError).
 // Control negativo: en f23146f los valores 11 y 86401 se aceptaban.
@@ -14,7 +14,7 @@ const { GrantDb } = await import(dist('grant-db.js'));
 const { PersistenceConfigError } = await import(dist('persistence-config.js'));
 const paths = (d) => ({ TEYOLIA_X402_STORE_PATH: path.join(d, 's.sqlite'), TEYOLIA_X402_GRANT_DB_PATH: path.join(d, 'g.sqlite') });
 
-describe('P4-L1: tope de la configuración de reentregas = Q-09', () => {
+describe('P4-L1 (PR-4): tope de la configuración de reentregas = Q-09', () => {
   for (const [k, v, ok] of [
     ['TEYOLIA_X402_REDELIVERY_MAX', '10', true], ['TEYOLIA_X402_REDELIVERY_MAX', '0', true], ['TEYOLIA_X402_REDELIVERY_MAX', '11', false], ['TEYOLIA_X402_REDELIVERY_MAX', '999999999', false],
     ['TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', '86400', true], ['TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', '1', true], ['TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', '86401', false], ['TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', '604800', false],

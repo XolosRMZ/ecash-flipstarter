@@ -1,4 +1,4 @@
-// P4-L3 (dictamen PR-4, opcional en PR-5; incluido): la configuración inválida se detecta ANTES de
+// P4-L3 (PR-4; opcional en PR-5, incluido): la configuración inválida se detecta ANTES de
 // crear el primer archivo de persistencia. Control negativo: en f23146f el store (y con ON también
 // la DB del grant) se creaban antes de rechazar proxy de confianza, expiración o reentregas.
 import assert from 'node:assert/strict';
@@ -11,7 +11,7 @@ import { CODEGEN_FLAG, PACKAGE_ROOT, baselineEnv, launch, makeTmp } from './help
 const { openPersistence } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'dist', 'server.js')).href);
 const paths = (d) => ({ TEYOLIA_X402_STORE_PATH: path.join(d, 's.sqlite'), TEYOLIA_X402_GRANT_DB_PATH: path.join(d, 'g.sqlite') });
 
-describe('P4-L3: configuración inválida -> 78 sin crear archivos', () => {
+describe('P4-L3 (PR-4): configuración inválida -> 78 sin crear archivos', () => {
   for (const [k, v] of [['TEYOLIA_X402_TRUST_PROXY', 'todos'], ['TEYOLIA_X402_EXPIRY_SECONDS', '0'], ['TEYOLIA_X402_EXPIRY_SECONDS', '3601'], ['TEYOLIA_X402_REDELIVERY_MAX', '-1'], ['TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', '0']]) {
     test(`proceso ON con ${k}=${v} -> exit 78 y el directorio de persistencia queda vacío`, async () => {
       const home = makeTmp('x402-p4l3h-').dir;

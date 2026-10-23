@@ -4,8 +4,9 @@ Esqueleto del proceso x402 de Teyolia según INF-045 (ratificado 2026-10-08 16:1
 plan de implementación TA-2 v1.0, con las correcciones de la revisión P-4 del Auditor.
 
 **Nomenclatura de hallazgos.** `P-4/Lx` son los hallazgos de la revisión P-4 del Auditor sobre el
-diseño de PR-1; `P4-Lx` (sin guion tras la P) son los del dictamen del Auditor sobre PR-4. Por ejemplo,
-`P-4/L3` es la limitación de código precargado (T-10i) y `P4-L3` es «configuración antes de
+diseño de PR-1; `P4-Lx (PR-4)` (sin guion y con el sufijo) son los del dictamen del Auditor sobre PR-4. La propia
+revisión P-4 los numera «P4-L1..P4-L7»; `P-4/Lx` es la convención de desambiguación. Por ejemplo,
+`P-4/L3` es la limitación de código precargado (T-10i) y `P4-L3 (PR-4)` es «configuración antes de
 persistencia» (PR-5).
 
 **Límites de este paquete (no negociables en TA-2):**
@@ -68,7 +69,7 @@ Rutas del proceso (solo `127.0.0.1`, puerto `TEYOLIA_X402_LISTEN`, distinto de 3
 * **Rate limit de emisión en memoria (PR4-E, bajo G-12):** los contadores por IP y global de M3
   viven en la memoria del proceso: se reinician con él y no se comparten entre instancias. Vale
   porque G-12 fija una sola instancia; el tope de facturas ISSUED vigentes sí se cuenta en la base.
-* **`node:vm` fuera del flag D-1 (P4-L2):** `--disallow-code-generation-from-strings` no bloquea
+* **`node:vm` fuera del flag D-1 (P4-L2 (PR-4)):** `--disallow-code-generation-from-strings` no bloquea
   `node:vm`. En los archivos propios lo impide T-11a (builtins enumerados); en terceros es residual
   LOW documentado (nota en `src/env-guard.ts`).
 * **T-10 y T-11 no cuentan como verdes** hasta que Xolo Auditor audite el inventario del commit
