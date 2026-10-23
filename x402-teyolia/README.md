@@ -113,6 +113,16 @@ Rutas del proceso (solo `127.0.0.1`, puerto `TEYOLIA_X402_LISTEN`, distinto de 3
 * **T-10 y T-11 no cuentan como verdes** hasta que Xolo Auditor audite el inventario del commit
   exacto (INF-045 §6.2, condición TA2-M1). Un CI verde demuestra que las pruebas pasan, no que
   T-10/T-11 estén cumplidos.
+* **`PAYMENT-SIGNATURE` (H2A v2) se ignora (PT-01b):** el servidor solo entiende `payment-proof`
+  C3B v1. La cabecera H2A v2 nunca se acepta como pago (sola da 402 con la oferta C3B), pero tampoco
+  se rechaza con un 4xx. **PT-01 es parcial** hasta PR-5b (cliente C3B sintético M4-S).
+* **Reorg después de la concesión (PT-05b, residual TA-3):** no hay revocación. Si la tx desaparece o
+  pierde la finalidad, la reentrega vuelve a consultar Chronik y da 402, pero el grant y la factura
+  PAID persisten. Sin riesgo de fondos en TA-2 (límites en cero); la finalidad ante reorg es
+  precondición del gate de TA-3.
+* **T-06 abierto hasta PR-6:** hoy lo componen T-10a/b/c/h, T-11a/b/c/d y T-18; faltan T-12 (red:
+  el `fetch` global hacia `127.0.0.1:3011`) y T-13 (archivos del legacy).
+* Correspondencia PT-01..PT-07 ↔ INF-042 §11 ↔ tests: `docs/pr5-pt-correspondencia.md` (tabla PT v1.1).
 * `debug` (dependencia de Express) intenta un `require('supports-color')` opcional que no está
   instalado: `check-graph` lo reporta como aviso. Si un `node_modules` superior lo tuviera, se
   cargaría y `check-graph` fallaría.
