@@ -6,7 +6,9 @@
 //   C. Identidad: build-info inválido -> { ok: false }; dist/ mutado -> --check sale 1, pero el
 //      health lo sigue declarando (caracterización del residual).
 //   D. Health: 200 con las 6 claves e idénticas en OFF, ON sin adaptadores y ON con adaptadores;
-//      503 TEYOLIA_X402_BUILD_UNVERIFIED sin build-info válido (nunca null); x402 sigue en 503.
+//      createApp con identidad inyectada no válida -> 503 TEYOLIA_X402_BUILD_UNVERIFIED (nunca null);
+//      x402 sigue en 503. El proceso real sin build-info válido no arranca (78; opción B, 17:39):
+//      pr5.m5v1.no-start.test.mjs.
 //   E. Build: positivo, clon desde bundle, limpieza de dist/, tarball sin .git, tarball dentro de otro
 //      repo, git no disponible, HEAD sin commits, HEAD de 64 hex, árbol sucio, dist/ versionado, GIT_DIR.
 import assert from 'node:assert/strict';
@@ -142,7 +144,7 @@ describe('M5-V1 D: health (opción A) y fallo cerrado', () => {
       } finally { s.close(); }
     });
   }
-  test('proceso real desde una copia de dist/: exacta -> 200; sin build-info o build-info inválido -> arranca, health 503, x402 503; .js mutado -> 200 declarado (residual)', async () => {
+  test('proceso real desde una copia de dist/: exacta -> 200; sin build-info o build-info inválido -> no arranca (78; opción B, ver pr5.m5v1.no-start); .js mutado -> 200 declarado (residual)', async () => {
     const base = mkdtempSync(path.join(PACKAGE_ROOT, '.m5v1-tmp-'));   // dentro del paquete: resuelve node_modules
     const home = makeTmp('x402-m5v1-home-');
     try {
@@ -153,12 +155,17 @@ describe('M5-V1 D: health (opción A) y fallo cerrado', () => {
         const d = copyDist(base);
         mutate(d);
         const r = await launch({ env: baselineEnv(home.dir), cwd: makeTmp('x402-cwd-').dir, main: path.join(d, 'main.js') });
+        if (!ok) {
+          if (r.started) { await r.stop(); assert.fail(`${label}: arrancó`); }
+          assert.equal(r.code, 78, label);
+          assert.match(r.stderr, /identidad de build no válida/);
+          continue;
+        }
         assert.equal(r.started, true, `${label}: ${r.stderr}`);
         try {
           const h = await http(r.port, 'GET', '/teyolia-x402/health');
-          assert.equal(h.status, ok ? 200 : 503, label);
-          if (ok) assert.equal(h.json.commit, realInfo.commit);
-          else { assert.equal(h.json.error, 'TEYOLIA_X402_BUILD_UNVERIFIED'); assert.equal('commit' in h.json, false); assert.match(r.stderr, /identidad de build no válida/); }
+          assert.equal(h.status, 200, label);
+          assert.equal(h.json.commit, realInfo.commit);
           assert.equal((await http(r.port, 'GET', '/x402/v1/access/demo')).status, 503, label);
         } finally { await r.stop(); }
       }

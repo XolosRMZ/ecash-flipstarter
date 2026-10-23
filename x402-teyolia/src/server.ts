@@ -7,8 +7,10 @@
 //     ON con adaptadores (solo tests) -> rate limit de emisión (M3) -> createX402SettlementMiddleware
 //     (0f409de, store durable y allocator xpub; sin allowInsecureDevelopmentMode) -> grant.
 //   - health propio: `/teyolia-x402/health` (M5-V1 opción A: `commit` y `distManifestSha256`
-//     declarados en dist/build-info.json, en el nivel superior; sin build-info válido -> 503
-//     TEYOLIA_X402_BUILD_UNVERIFIED); anuncio propio: `/teyolia-x402/capabilities` (RQ-03,
+//     declarados en dist/build-info.json, en el nivel superior). Sin build-info válido el proceso
+//     real NO arranca (startServer: exit 78 antes de abrir la persistencia; Fernando, opción B,
+//     2026-10-23 17:39); createApp conserva el 503 TEYOLIA_X402_BUILD_UNVERIFIED para los tests y
+//     como defensa en profundidad. Anuncio propio: `/teyolia-x402/capabilities` (RQ-03,
 //     opción preferida: el proceso x402 publica su anuncio; mismo predicado que la ruta, T-17).
 //   - nada bajo `/proposed/v0.1/` (404).
 
@@ -95,8 +97,9 @@ export function createApp(env: Env, adapters?: X402Adapters, options: AppOptions
 
   // M5-V1 (opción A): identidad DECLARADA (dist/build-info.json), leída UNA vez al crear la app; no se
   // recalcula el manifiesto (residual PT5-04 (iv), ver build-identity.ts). Falla cerrado: sin
-  // build-info válido el health responde 503 sin `commit` ni `distManifestSha256` (nunca null). No
-  // cambia las rutas x402 (siguen en 503 en el proceso real) ni el kill switch.
+  // build-info válido el health responde 503 sin `commit` ni `distManifestSha256` (nunca null). El
+  // proceso real no llega aquí con identidad inválida (startServer sale con 78); este 503 queda para
+  // los tests unitarios y como defensa en profundidad. No cambia las rutas x402 ni el kill switch.
   const identity = options.buildIdentity ?? loadBuildIdentity();
   app.get(HEALTH_ROUTE, (_req: Request, res: Response) => {
     res.set('Cache-Control', 'no-store');
@@ -231,6 +234,15 @@ export function validateAppConfig(env: Env): void {
 }
 
 export function startServer(env: Env): void {
+  // M5-V1, opción B (Fernando, 2026-10-23 17:39; P5-01): la identidad de build se verifica ANTES de
+  // abrir, crear o modificar cualquier persistencia. Ausente, JSON inválido o estructuralmente no
+  // verificable -> exit 78 sin tocar store ni grant.
+  const identity = loadBuildIdentity();
+  if (!identity.ok) {
+    process.stderr.write(`x402-teyolia: identidad de build no válida (${identity.reason}); arranque abortado\n`);
+    process.exitCode = 78;
+    return;
+  }
   try {
     validateAppConfig(env);
   } catch (err) {
@@ -247,9 +259,7 @@ export function startServer(env: Env): void {
   }
   let app: express.Express;
   try {
-    const identity = loadBuildIdentity();
     app = createApp(env, undefined, { buildIdentity: identity });
-    if (!identity.ok) process.stderr.write(`x402-teyolia: identidad de build no válida (${identity.reason}); health en 503\n`);
   } catch (err) {
     const why = err instanceof TrustProxyConfigError || err instanceof ExpiryConfigError ? err.message : 'configuración no válida';
     process.stderr.write(`x402-teyolia: configuración rechazada: ${why}\n`);

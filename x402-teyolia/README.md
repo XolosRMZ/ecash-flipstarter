@@ -55,8 +55,8 @@ npm run inventory:check
 Rutas del proceso (solo `127.0.0.1`, puerto `TEYOLIA_X402_LISTEN`, distinto de 3011):
 
 * `GET /teyolia-x402/health` → `{status, component, x402Enabled, limitsZero, commit, distManifestSha256}`
-  (M5-V1, opción A; valores declarados en `dist/build-info.json`; sin build-info válido → 503, ver
-  abajo). No usa
+  (M5-V1, opción A; valores declarados en `dist/build-info.json`; sin build-info válido el proceso no
+  arranca, ver abajo). No usa
   `/api/health` para no chocar con el health del backend legacy detrás de Nginx.
 * `/x402/v1/access/demo` y todo `/x402/**` → 503.
 * Cualquier otra ruta → 404.
@@ -88,12 +88,19 @@ Rutas del proceso (solo `127.0.0.1`, puerto `TEYOLIA_X402_LISTEN`, distinto de 3
   `--rebuild-compare` (M5-V1: rebuild limpio igual a `distManifestSha256` y `commit` igual a HEAD).
 * **Health — valor declarado, no medido.** El proceso lee `dist/build-info.json` una vez al arrancar
   y valida su forma; **no recalcula el manifiesto**. Un `dist/*.js` alterado con el `build-info.json`
-  intacto seguiría reportando el hash original. Es un residual documentado (PT5-04 (iv), pendiente de
-  Fernando): la identidad real se comprueba con M5-V1 por rebuild y, en mx2, hasheando los archivos de
-  `dist/` sin fiarse del health. Si `build-info.json` falta o su forma no es válida,
-  `/teyolia-x402/health` responde **503** `{status: "build_unverified", component, x402Enabled,
-  limitsZero, error: "TEYOLIA_X402_BUILD_UNVERIFIED"}`, sin `commit` ni `distManifestSha256`, y el
-  proceso lo anota en stderr. Las rutas x402 y el kill switch no cambian (el proceso sigue en 503).
+  intacto seguiría reportando el hash original. Es un residual documentado (PT5-04 (iv)); Fernando
+  (2026-10-23 17:39) no adopta por ahora el recálculo al arrancar. La verificación vinculante es el
+  rebuild determinista y la comparación en CI (M5-V1) y, en mx2, la evidencia M5 externa que hashea
+  los archivos de `dist/` sin fiarse del health, antes de TA-3 o de la reconexión.
+* **Sin identidad válida, el proceso no arranca** (opción B, Fernando 2026-10-23 17:39; Auditor
+  P5-01). `startServer` evalúa la identidad **antes** de abrir la persistencia: si `build-info.json`
+  falta, no es JSON o no es estructuralmente verificable (claves exactas, `schema` 1, `commit` de 40
+  hex, `distManifestSha256` de 64 hex, `files` ≥ 1), sale con **78** sin abrir, crear ni modificar
+  `store.sqlite`, `grant.sqlite` ni sus `-wal`/`-shm`, y lo anota en stderr. `createApp` conserva,
+  para los tests unitarios y como defensa en profundidad, el health **503** `{status:
+  "build_unverified", component, x402Enabled, limitsZero, error: "TEYOLIA_X402_BUILD_UNVERIFIED"}`,
+  sin `commit` ni `distManifestSha256`. Las rutas x402 y el kill switch no cambian (el proceso sigue
+  en 503).
 
 ## Limitaciones conocidas
 
@@ -118,8 +125,10 @@ Rutas del proceso (solo `127.0.0.1`, puerto `TEYOLIA_X402_LISTEN`, distinto de 3
   se rechaza con un 4xx. **PT-01 es parcial** hasta PR-5b (cliente C3B sintético M4-S).
 * **Reorg después de la concesión (PT-05b, residual TA-3):** no hay revocación. Si la tx desaparece o
   pierde la finalidad, la reentrega vuelve a consultar Chronik y da 402, pero el grant y la factura
-  PAID persisten. Sin riesgo de fondos en TA-2 (límites en cero); la finalidad ante reorg es
-  precondición del gate de TA-3.
+  PAID persisten. Sin riesgo de fondos en TA-2 (límites en cero); la finalidad ante reorg pasa a las
+  precondiciones del gate de TA-3 (PT5-11): A-02 concede con un bloque sin finalidad Avalanche y,
+  tras un reorg, el grant y PAID persisten sin revocación; allí se decide si con recursos reales se
+  exige `isFinal: true` antes de conceder.
 * **T-06 abierto hasta PR-6:** hoy lo componen T-10a/b/c/h, T-11a/b/c/d y T-18; faltan T-12 (red:
   el `fetch` global hacia `127.0.0.1:3011`) y T-13 (archivos del legacy).
 * Correspondencia PT-01..PT-07 ↔ INF-042 §11 ↔ tests: `docs/pr5-pt-correspondencia.md` (tabla PT v1.1).

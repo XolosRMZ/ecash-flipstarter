@@ -4,10 +4,10 @@
 // VALOR DECLARADO, NO MEDIDO. El proceso lee `dist/build-info.json`, que escribe el build
 // (scripts/dist-manifest.mjs --build), y valida su forma. NO recalcula el manifiesto del dist/ en
 // disco: un dist/*.js alterado con el build-info.json intacto seguiría reportando el hash original.
-// Residual documentado (dictamen de la tabla PT, PT5-04 (iv); decisión pendiente de Fernando, §9.1):
-// la verificación de identidad real es M5-V1 por rebuild (`npm run check:dist`) y, en mx2, la
-// captura M5 que hashea los archivos de dist/ sin fiarse del health. El recálculo al arrancar está
-// preparado aparte (rama/parche opcional de PR-5) y sustituye solo este archivo.
+// Residual documentado (dictamen de la tabla PT, PT5-04 (iv)). Fernando (2026-10-23 17:39) no adopta
+// por ahora el recálculo al arrancar: la verificación vinculante es M5-V1 por rebuild determinista y
+// comparación en CI (`npm run check:dist`) y, en mx2, la evidencia M5 externa que hashea los archivos
+// de dist/ sin fiarse del health, antes de TA-3 o de la reconexión.
 //
 // Conjunto cubierto (definido en scripts/dist-manifest.mjs): todo archivo regular de dist/ salvo los
 // archivos de identidad IDENTITY_FILES, que contienen distManifestSha256 o el manifiesto y quedan
@@ -15,7 +15,8 @@
 //
 // Falla cerrado: build-info.json ausente, ilegible o con forma inválida (commit que no son 40 hex,
 // hash que no son 64 hex, claves distintas, schema distinto de 1) -> { ok: false }. Nunca null.
-// Se lee UNA vez al crear la app.
+// Se lee UNA vez: startServer la evalúa antes de abrir la persistencia (exit 78 si no es válida) y
+// createApp la usa para el health.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -26,7 +27,7 @@ export const MANIFEST_FILE = 'dist-manifest.sha256';
 export const IDENTITY_FILES: readonly string[] = Object.freeze([BUILD_INFO_FILE, MANIFEST_FILE]);
 export const BUILD_INFO_SCHEMA = 1;
 export const BUILD_UNVERIFIED_CODE = 'TEYOLIA_X402_BUILD_UNVERIFIED';
-/** false: valor declarado (residual PT5-04 (iv)). El parche opcional de recálculo lo pone en true. */
+/** false: valor declarado (residual PT5-04 (iv)); el recálculo al arrancar no se adopta (17:39). */
 export const RUNTIME_MANIFEST_RECOMPUTED = false;
 
 export type BuildIdentity =
