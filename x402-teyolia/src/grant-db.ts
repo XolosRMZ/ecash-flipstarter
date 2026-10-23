@@ -51,6 +51,8 @@ export type GrantOutcome =
  * `now - first_delivery_at < REDELIVERY_WINDOW_SECONDS` (86400, límite exclusivo como expiresAt).
  * La 11.ª, o cualquiera fuera de la ventana -> 410 TEYOLIA_X402_REDELIVERY_EXHAUSTED, sin efecto
  * (no cambia la fila). Valores de TEYOLIA_X402_REDELIVERY_MAX / _WINDOW_SECONDS.
+ * P4-L1 (dictamen PR-4; PR-5): los valores de Q-09 son también el TOPE. La configuración solo
+ * puede endurecerlos (0..10 reentregas, 1..86400 s); un valor mayor falla cerrado.
  */
 export const DEFAULT_REDELIVERY_MAX = 10;
 export const DEFAULT_REDELIVERY_WINDOW_SECONDS = 86_400;
@@ -103,8 +105,12 @@ export class GrantDb {
     this.#newId = opts.newId ?? (() => crypto.randomUUID());
     this.#redeliveryMax = opts.redeliveryMax ?? DEFAULT_REDELIVERY_MAX;
     this.#redeliveryWindow = opts.redeliveryWindowSeconds ?? DEFAULT_REDELIVERY_WINDOW_SECONDS;
-    if (!Number.isSafeInteger(this.#redeliveryMax) || this.#redeliveryMax < 0) throw new RangeError('redeliveryMax debe ser un entero >= 0');
-    if (!Number.isSafeInteger(this.#redeliveryWindow) || this.#redeliveryWindow < 1) throw new RangeError('redeliveryWindowSeconds debe ser un entero >= 1');
+    if (!Number.isSafeInteger(this.#redeliveryMax) || this.#redeliveryMax < 0 || this.#redeliveryMax > DEFAULT_REDELIVERY_MAX) {
+      throw new RangeError('redeliveryMax debe ser un entero en [0, 10] (P4-L1)');
+    }
+    if (!Number.isSafeInteger(this.#redeliveryWindow) || this.#redeliveryWindow < 1 || this.#redeliveryWindow > DEFAULT_REDELIVERY_WINDOW_SECONDS) {
+      throw new RangeError('redeliveryWindowSeconds debe ser un entero en [1, 86400] (P4-L1)');
+    }
     this.#db = new DatabaseSync(databasePath);
     // Codex #65: busy_timeout ANTES del cambio de journal mode y de cualquier DDL.
     this.#db.exec('PRAGMA busy_timeout = 5000;');

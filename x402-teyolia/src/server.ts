@@ -144,17 +144,21 @@ export function createApp(env: Env, adapters?: X402Adapters): express.Express {
   return app;
 }
 
-/** Opciones de la DB del grant desde la allowlist (D-4). Inválido -> error de configuración. */
+/**
+ * Opciones de la DB del grant desde la allowlist (D-4). Inválido -> error de configuración.
+ * P4-L1: los valores de Q-09 son el tope (máx. 10 reentregas, ventana máx. 86400 s); un valor mayor
+ * falla cerrado (exit 78), igual que uno no numérico o por debajo del mínimo.
+ */
 export function readRedeliveryOptions(env: Env): { redeliveryMax: number; redeliveryWindowSeconds: number } {
-  const num = (name: string, fallback: number, min: number): number => {
+  const num = (name: string, fallback: number, min: number, max: number): number => {
     const raw = env[name];
     if (raw === undefined || raw === '') return fallback;
-    if (!/^[0-9]{1,9}$/.test(raw) || Number(raw) < min) throw new PersistenceConfigError(name, 'valor no válido');
+    if (!/^[0-9]{1,9}$/.test(raw) || Number(raw) < min || Number(raw) > max) throw new PersistenceConfigError(name, 'valor no válido');
     return Number(raw);
   };
   return {
-    redeliveryMax: num('TEYOLIA_X402_REDELIVERY_MAX', DEFAULT_REDELIVERY_MAX, 0),
-    redeliveryWindowSeconds: num('TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', DEFAULT_REDELIVERY_WINDOW_SECONDS, 1),
+    redeliveryMax: num('TEYOLIA_X402_REDELIVERY_MAX', DEFAULT_REDELIVERY_MAX, 0, DEFAULT_REDELIVERY_MAX),
+    redeliveryWindowSeconds: num('TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', DEFAULT_REDELIVERY_WINDOW_SECONDS, 1, DEFAULT_REDELIVERY_WINDOW_SECONDS),
   };
 }
 
