@@ -66,14 +66,17 @@ export class ReadOnlyStoreReader implements PaidInvoiceSource {
    * Facturas PAID (para la conciliación de T-03), con su vida persistida (Codex #66: issued_at y
    * expires_at). Un valor que no sea un entero de SQLite se entrega como NaN para que la
    * conciliación falle cerrada (ReconcileDataError); nunca se convierte desde texto.
+   * P66Δ-L1 (PR-5): no se filtran las filas PAID con `settled_txid` o `settled_at` NULL. Se entregan
+   * (txid '' y settledAt NaN) para que `reconcile()` falle cerrada en vez de omitirlas en silencio.
    */
   *listPaid(): Iterable<PaidInvoice> {
     const int = (v: unknown): number => (typeof v === 'number' && Number.isSafeInteger(v) ? v : Number.NaN);
     const rows = this.#db
-      .prepare("SELECT invoice_hash, settled_txid, settled_at, issued_at, expires_at FROM invoices WHERE state = 'PAID' AND settled_txid IS NOT NULL AND settled_at IS NOT NULL ORDER BY invoice_hash")
-      .all() as { invoice_hash: string; settled_txid: string; settled_at: unknown; issued_at: unknown; expires_at: unknown }[];
+      .prepare("SELECT invoice_hash, settled_txid, settled_at, issued_at, expires_at FROM invoices WHERE state = 'PAID' ORDER BY invoice_hash")
+      .all() as { invoice_hash: string; settled_txid: unknown; settled_at: unknown; issued_at: unknown; expires_at: unknown }[];
     for (const r of rows) {
-      yield { invoiceHash: r.invoice_hash, settledTxid: r.settled_txid, settledAt: int(r.settled_at), issuedAt: int(r.issued_at), expiresAt: int(r.expires_at) };
+      const settledTxid = typeof r.settled_txid === 'string' ? r.settled_txid : '';
+      yield { invoiceHash: r.invoice_hash, settledTxid, settledAt: int(r.settled_at), issuedAt: int(r.issued_at), expiresAt: int(r.expires_at) };
     }
   }
 

@@ -4,6 +4,10 @@
 // 120/min global y tope de 200 facturas ISSUED vigentes. Al superar cualquiera -> 429
 // TEYOLIA_X402_ISSUANCE_LIMITED antes del middleware: no se escribe fila ni se consume índice.
 // La IP es `req.ip`, que solo usa X-Forwarded-For si el proxy es de confianza (trust-proxy.ts, T-19).
+// PR4-E (dictamen PR-4 §11; documentado en PR-5): los contadores viven EN MEMORIA del proceso, bajo
+// G-12 (una sola instancia). Un reinicio los pone en cero y varias instancias no los comparten; el
+// tope de facturas ISSUED vigentes sí sale de la base (countActiveIssued). Más de una instancia, o un
+// límite que sobreviva al reinicio, exige otro diseño y una decisión nueva (fuera de TA-2).
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 

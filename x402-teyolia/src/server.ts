@@ -1,12 +1,16 @@
 // Fase 2: Express 5, sin body parser. Solo se carga si el guard de entorno pasó.
-// Rutas (Auditor P4-L4):
+// Rutas (Auditor, revisión P-4 del diseño de PR-1, P-4/L4):
 //   - x402: `/x402/v1/access/demo` (y `/x402/v1/access/demo-alt`, para R-13) y todo `/x402/**`.
 //     OFF -> 503 TEYOLIA_X402_DISABLED, evaluado ANTES de cualquier middleware (R-14).
 //     ON sin adaptadores inyectados -> 503 TEYOLIA_X402_NOT_IMPLEMENTED (el proceso real no tiene
 //     txProvider: Chronik solo por fixtures, DEC-AX-09 (a); decisión abierta PR4-A).
 //     ON con adaptadores (solo tests) -> rate limit de emisión (M3) -> createX402SettlementMiddleware
 //     (0f409de, store durable y allocator xpub; sin allowInsecureDevelopmentMode) -> grant.
-//   - health propio: `/teyolia-x402/health`; anuncio propio: `/teyolia-x402/capabilities` (RQ-03,
+//   - health propio: `/teyolia-x402/health` (M5-V1 opción A: `commit` y `distManifestSha256`
+//     declarados en dist/build-info.json, en el nivel superior). Sin build-info válido el proceso
+//     real NO arranca (startServer: exit 78 antes de abrir la persistencia; Fernando, opción B,
+//     2026-10-23 17:39); createApp conserva el 503 TEYOLIA_X402_BUILD_UNVERIFIED para los tests y
+//     como defensa en profundidad. Anuncio propio: `/teyolia-x402/capabilities` (RQ-03,
 //     opción preferida: el proceso x402 publica su anuncio; mismo predicado que la ruta, T-17).
 //   - nada bajo `/proposed/v0.1/` (404).
 
@@ -28,6 +32,8 @@ import { createIssuanceLimiter } from './issuance-limit.js';
 import { PersistenceConfigError, readPersistenceConfig } from './persistence-config.js';
 import { ExpiryConfigError, readExpirySeconds } from './reconcile.js';
 import { TrustProxyConfigError, readTrustProxy } from './trust-proxy.js';
+import { BUILD_UNVERIFIED_CODE, loadBuildIdentity } from './build-identity.js';
+import type { BuildIdentity } from './build-identity.js';
 
 export const DEMO_ROUTE = '/x402/v1/access/demo';
 export const DEMO_ALT_ROUTE = '/x402/v1/access/demo-alt';
@@ -65,7 +71,12 @@ export function x402RouteActive(env: Env, adapters: X402Adapters | undefined): b
   return killSwitchState(env) === 'ON' && adapters !== undefined;
 }
 
-export function createApp(env: Env, adapters?: X402Adapters): express.Express {
+/** Opciones de createApp. `buildIdentity` solo lo inyectan los tests; el proceso real lo calcula. */
+export interface AppOptions {
+  readonly buildIdentity?: BuildIdentity;
+}
+
+export function createApp(env: Env, adapters?: X402Adapters, options: AppOptions = {}): express.Express {
   const state = killSwitchState(env);
   const limits = readRateLimits(env);
   const trustProxy = readTrustProxy(env);
@@ -84,12 +95,31 @@ export function createApp(env: Env, adapters?: X402Adapters): express.Express {
       .json({ error: state === 'ON' ? X402_NOT_IMPLEMENTED_CODE : X402_DISABLED_CODE });
   };
 
+  // M5-V1 (opción A): identidad DECLARADA (dist/build-info.json), leída UNA vez al crear la app; no se
+  // recalcula el manifiesto (residual PT5-04 (iv), ver build-identity.ts). Falla cerrado: sin
+  // build-info válido el health responde 503 sin `commit` ni `distManifestSha256` (nunca null). El
+  // proceso real no llega aquí con identidad inválida (startServer sale con 78); este 503 queda para
+  // los tests unitarios y como defensa en profundidad. No cambia las rutas x402 ni el kill switch.
+  const identity = options.buildIdentity ?? loadBuildIdentity();
   app.get(HEALTH_ROUTE, (_req: Request, res: Response) => {
-    res.set('Cache-Control', 'no-store').json({
+    res.set('Cache-Control', 'no-store');
+    if (!identity.ok) {
+      res.status(503).json({
+        status: 'build_unverified',
+        component: 'x402-teyolia',
+        x402Enabled: state === 'ON',
+        limitsZero: limitsAreZero(),
+        error: BUILD_UNVERIFIED_CODE,
+      });
+      return;
+    }
+    res.json({
       status: 'ok',
       component: 'x402-teyolia',
       x402Enabled: state === 'ON',
       limitsZero: limitsAreZero(),
+      commit: identity.commit,
+      distManifestSha256: identity.distManifestSha256,
     });
   });
   app.get(CAPABILITIES_ROUTE, (_req: Request, res: Response) => {
@@ -144,17 +174,21 @@ export function createApp(env: Env, adapters?: X402Adapters): express.Express {
   return app;
 }
 
-/** Opciones de la DB del grant desde la allowlist (D-4). Inválido -> error de configuración. */
+/**
+ * Opciones de la DB del grant desde la allowlist (D-4). Inválido -> error de configuración.
+ * P4-L1 (PR-4): los valores de Q-09 son el tope (máx. 10 reentregas, ventana máx. 86400 s); un valor mayor
+ * falla cerrado (exit 78), igual que uno no numérico o por debajo del mínimo.
+ */
 export function readRedeliveryOptions(env: Env): { redeliveryMax: number; redeliveryWindowSeconds: number } {
-  const num = (name: string, fallback: number, min: number): number => {
+  const num = (name: string, fallback: number, min: number, max: number): number => {
     const raw = env[name];
     if (raw === undefined || raw === '') return fallback;
-    if (!/^[0-9]{1,9}$/.test(raw) || Number(raw) < min) throw new PersistenceConfigError(name, 'valor no válido');
+    if (!/^[0-9]{1,9}$/.test(raw) || Number(raw) < min || Number(raw) > max) throw new PersistenceConfigError(name, 'valor no válido');
     return Number(raw);
   };
   return {
-    redeliveryMax: num('TEYOLIA_X402_REDELIVERY_MAX', DEFAULT_REDELIVERY_MAX, 0),
-    redeliveryWindowSeconds: num('TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', DEFAULT_REDELIVERY_WINDOW_SECONDS, 1),
+    redeliveryMax: num('TEYOLIA_X402_REDELIVERY_MAX', DEFAULT_REDELIVERY_MAX, 0, DEFAULT_REDELIVERY_MAX),
+    redeliveryWindowSeconds: num('TEYOLIA_X402_REDELIVERY_WINDOW_SECONDS', DEFAULT_REDELIVERY_WINDOW_SECONDS, 1, DEFAULT_REDELIVERY_WINDOW_SECONDS),
   };
 }
 
@@ -172,9 +206,11 @@ export function openPersistence(env: Env): Persistence | null | 'invalid' {
   if (killSwitchState(env) !== 'ON') return null;
   try {
     const cfg = readPersistenceConfig(env);
+    // P4-L3 (PR-4; PR-5): toda la configuración se valida ANTES de crear el primer archivo.
+    const redelivery = readRedeliveryOptions(env);
     const store = new X402InvoiceStore(cfg.storePath);
     try {
-      return { store, grants: new GrantDb(cfg.grantDbPath, readRedeliveryOptions(env)) };
+      return { store, grants: new GrantDb(cfg.grantDbPath, redelivery) };
     } catch (err) {
       store.shutdown();
       throw err;
@@ -186,7 +222,35 @@ export function openPersistence(env: Env): Persistence | null | 'invalid' {
   }
 }
 
+/**
+ * P4-L3 (PR-4; PR-5): valida la configuración de la app (proxy de confianza, expiración y límites
+ * de tasa) sin efectos. startServer la llama ANTES de openPersistence, así que un error de
+ * configuración sale con 78 sin haber creado ni abierto el store ni la DB del grant.
+ */
+export function validateAppConfig(env: Env): void {
+  readRateLimits(env);
+  readTrustProxy(env);
+  readExpirySeconds(env);
+}
+
 export function startServer(env: Env): void {
+  // M5-V1, opción B (Fernando, 2026-10-23 17:39; P5-01): la identidad de build se verifica ANTES de
+  // abrir, crear o modificar cualquier persistencia. Ausente, JSON inválido o estructuralmente no
+  // verificable -> exit 78 sin tocar store ni grant.
+  const identity = loadBuildIdentity();
+  if (!identity.ok) {
+    process.stderr.write(`x402-teyolia: identidad de build no válida (${identity.reason}); arranque abortado\n`);
+    process.exitCode = 78;
+    return;
+  }
+  try {
+    validateAppConfig(env);
+  } catch (err) {
+    const why = err instanceof TrustProxyConfigError || err instanceof ExpiryConfigError ? err.message : 'configuración no válida';
+    process.stderr.write(`x402-teyolia: configuración rechazada: ${why}\n`);
+    process.exitCode = 78;
+    return;
+  }
   const persistence = openPersistence(env);
   if (persistence === 'invalid') {
     process.stderr.write('x402-teyolia: arranque abortado por la configuración de persistencia\n');
@@ -195,7 +259,7 @@ export function startServer(env: Env): void {
   }
   let app: express.Express;
   try {
-    app = createApp(env);
+    app = createApp(env, undefined, { buildIdentity: identity });
   } catch (err) {
     const why = err instanceof TrustProxyConfigError || err instanceof ExpiryConfigError ? err.message : 'configuración no válida';
     process.stderr.write(`x402-teyolia: configuración rechazada: ${why}\n`);

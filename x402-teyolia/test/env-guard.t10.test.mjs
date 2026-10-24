@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { FIXTURES, baselineEnv, fullAllowlistEnv, http, launch, makeTmp, rejections } from './helpers.mjs';
+import { FIXTURES, PACKAGE_ROOT, baselineEnv, fullAllowlistEnv, http, launch, makeTmp, rejections } from './helpers.mjs';
 
 let tmp;
 before(() => { tmp = makeTmp(); });
@@ -121,7 +121,11 @@ describe('T-10f: allowlist exacta con valores de prueba (control positivo)', () 
     try {
       const h = await http(r.port, 'GET', '/teyolia-x402/health');
       assert.equal(h.status, 200);
-      assert.deepEqual(h.json, { status: 'ok', component: 'x402-teyolia', x402Enabled: false, limitsZero: true });
+      const bi = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'dist', 'build-info.json'), 'utf8'));
+      // M5-V1 opción A (fila 14:16): igualdad exacta del objeto y formato de los dos campos nuevos.
+      assert.deepEqual(h.json, { status: 'ok', component: 'x402-teyolia', x402Enabled: false, limitsZero: true, commit: bi.commit, distManifestSha256: bi.distManifestSha256 });
+      assert.match(h.json.commit, /^[0-9a-f]{40}$/);
+      assert.match(h.json.distManifestSha256, /^[0-9a-f]{64}$/);
       const d = await http(r.port, 'GET', '/x402/v1/access/demo');
       assert.equal(d.status, 503);
       assert.deepEqual(d.json, { error: 'TEYOLIA_X402_DISABLED' });
@@ -174,9 +178,9 @@ describe('T-10i: NODE_* y flags de arranque (TA2.1-L1, comentario 4/6)', () => {
     ['--experimental-loader', `--experimental-loader=${marker}`],
     ['--require', `--require=${markerCjs}`],
   ]) {
-    test(`T-10i env NODE_OPTIONS=${label}: no arranca; el marcador de precarga SÍ aparece (limitación P4-L3)`, async () => {
+    test(`T-10i env NODE_OPTIONS=${label}: no arranca; el marcador de precarga SÍ aparece (limitación P-4/L3)`, async () => {
       const r = await expectNoStart({ extraEnv: { NODE_OPTIONS: opt }, expectName: 'NODE_OPTIONS', expectRules: ['B'] });
-      assert.equal(existsSync(path.join(r.cwd, 'preload-marker.txt')), true, 'P4-L3: el código precargado se ejecutó antes del guard (detección, no prevención)');
+      assert.equal(existsSync(path.join(r.cwd, 'preload-marker.txt')), true, 'P-4/L3: el código precargado se ejecutó antes del guard (detección, no prevención)');
     });
   }
 

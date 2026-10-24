@@ -11,7 +11,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "build": "node scripts/dist-manifest.mjs --build",
+    "check:dist": "node scripts/dist-manifest.mjs --check && node scripts/dist-manifest.mjs --rebuild-compare",
     "test": "node --test --test-reporter=spec test/*.test.mjs",
     "check:graph": "node scripts/check-graph.mjs dist/main.js && node scripts/check-graph.mjs --surface vendor",
     "check:vendor": "node scripts/check-vendor.mjs",
