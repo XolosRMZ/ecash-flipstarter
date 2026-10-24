@@ -122,7 +122,12 @@ Rutas del proceso (solo `127.0.0.1`, puerto `TEYOLIA_X402_LISTEN`, distinto de 3
   T-10/T-11 estén cumplidos.
 * **`PAYMENT-SIGNATURE` (H2A v2) se ignora (PT-01b):** el servidor solo entiende `payment-proof`
   C3B v1. La cabecera H2A v2 nunca se acepta como pago (sola da 402 con la oferta C3B), pero tampoco
-  se rechaza con un 4xx. **PT-01 es parcial** hasta PR-5b (cliente C3B sintético M4-S).
+  se rechaza con un 4xx. Ni sola ni transportando una prueba C3B válida produce grant, PAID ni
+  consulta a Chronik. **M4-S (PR-5b, RQ-13):** el cliente C3B sintético de
+  `test/fixtures/x402/c3b-client.mjs` (solo tests; sin llaves, firma, red ni fondos) recorre la
+  cadena oferta → recibo → prueba → 200 y **rechaza** las ofertas `PAYMENT-SIGNATURE` y H2A v2
+  (`xec-prepaid-utxo`, x402Version 2) sin pagar (`test/pr5b.m4s.c3b-client.test.mjs`). Con esto
+  PT-01 queda cubierto; la tabla PT v1.1 (`docs/`) no se reescribe.
 * **Reorg después de la concesión (PT-05b, residual TA-3):** no hay revocación. Si la tx desaparece o
   pierde la finalidad, la reentrega vuelve a consultar Chronik y da 402, pero el grant y la factura
   PAID persisten. Sin riesgo de fondos en TA-2 (límites en cero); la finalidad ante reorg pasa a las
